@@ -3180,7 +3180,7 @@ dependencies = [
 [[package]]
 name = "tawara-app"
 version = "0.1.0"
-source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=7f3475e11700cbb83d58e0d32dfe0cc7246db0e5#7f3475e11700cbb83d58e0d32dfe0cc7246db0e5"
+source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=25b03e50fc180e1594127b444f7911ee9028ca28#25b03e50fc180e1594127b444f7911ee9028ca28"
 dependencies = [
  "chrono",
  "iced",
@@ -3206,7 +3206,7 @@ dependencies = [
 [[package]]
 name = "tawara-wallet-core"
 version = "0.1.0"
-source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=7f3475e11700cbb83d58e0d32dfe0cc7246db0e5#7f3475e11700cbb83d58e0d32dfe0cc7246db0e5"
+source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=25b03e50fc180e1594127b444f7911ee9028ca28#25b03e50fc180e1594127b444f7911ee9028ca28"
 dependencies = [
  "getrandom 0.2.17",
  "mochimo-crypto",
