@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tawara for Android (docs/DECISIONS.md D32). NativeActivity: no
+     classes.dex, so hasCode is false, and no Java, Kotlin or Gradle (D4).
+     The native libraries are stored uncompressed and 16 KB-aligned, so the
+     system maps them from the APK (extractNativeLibs false).
+
+     Backups (docs/PLAN.md section 4.5): allowBackup is false, and the
+     data-extraction rules exclude every domain from cloud backup and from
+     device transfer, which Android 12 and later run whatever allowBackup
+     says. The store lives in no_backup/ besides (D21), so it relies on no
+     one guard alone.
+
+     Back arrives as a key event (enableOnBackInvokedCallback false) and
+     takes the task to the background; the activity is never finished, and
+     handles every configuration change itself, since winit cannot start it
+     again in the same process (docs/spikes/P1-REPORT.md, A18). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.patricksmithlaravel.tawara">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:label="Tawara"
+        android:hasCode="false"
+        android:extractNativeLibs="false"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="false"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize|stateHidden"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|touchscreen|colorMode">
+            <meta-data android:name="android.app.lib_name" android:value="tawara_mobile" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
