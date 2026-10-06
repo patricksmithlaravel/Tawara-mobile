@@ -32,7 +32,6 @@ SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:?ANDROID_HOME is not set}}
 export PATH="$SDK/platform-tools:$SDK/emulator:$SDK/cmdline-tools/latest/bin:$PATH"
 LOG=$OUT/logcat.txt
 mkdir -p "$OUT"
-: >>"$OUT/results.tsv"
 
 group() { echo "::group::$*"; }
 endgroup() { echo "::endgroup::"; }
@@ -247,6 +246,9 @@ summary() {
 # Not `emulator`: a function of that name would shadow the SDK's emulator
 # program, which emulator_up runs.
 on_emulator() {
+  # A run's results are its own: a FAIL left from an earlier run would fail
+  # this one at the end whatever it found (Tawara-mobile#1's review).
+  : >"$OUT/results.tsv"
   emulator_up
   trap 'summary; emulator_down' EXIT
 

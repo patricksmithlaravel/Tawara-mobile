@@ -227,10 +227,12 @@ fn uncover(_: MainThreadMarker) {
 /// kept running until the lock is done (D32 item 6). The worker locks after
 /// the command it is running, which a node request or a spend being
 /// submitted can hold, and iOS may suspend the process as soon as this
-/// returns; so UIKit is asked for background time, which ends when the lock
-/// is done. If the time runs out first, the process ends itself rather than
-/// be suspended with the store's key in memory (the owner's choice, D32
-/// item 6): the next start is locked, and nothing persistent is lost.
+/// returns; and what is typed, or a recovery phrase shown, is wiped by the
+/// interface on its next message, on the main thread. So UIKit is asked for
+/// background time, which ends when both are done (`Leaving`). If the time
+/// runs out first, the process ends itself rather than be suspended with
+/// the store's key in memory (the owner's choice, D32 item 6): the next
+/// start is locked, and nothing persistent is lost.
 fn entered_background(mtm: MainThreadMarker) {
     eprintln!("TAWARA lifecycle: background; locking");
     let task = Arc::new(Task::default());
@@ -258,13 +260,13 @@ fn entered_background(mtm: MainThreadMarker) {
 
     // SAFETY: UIBackgroundTaskInvalid is UIKit's own constant.
     if id == unsafe { UIBackgroundTaskInvalid } {
-        // No background time at all: wait a moment here, then the same rule.
-        if !leaving.wait(Duration::from_secs(1)) {
-            eprintln!("TAWARA lifecycle: no background time and the lock is not done; ending");
-            std::process::exit(0);
-        }
-        eprintln!("TAWARA lifecycle: background; locked");
-        return;
+        // No background time at all: the only thread left to wait on is
+        // this one, the main thread, which the interface's own wipe needs
+        // (D32 item 6), so the wait could not end well. The same rule as
+        // when the time runs out.
+        drop(leaving);
+        eprintln!("TAWARA lifecycle: no background time to finish the lock; ending");
+        std::process::exit(0);
     }
 
     let spawned = std::thread::Builder::new()
