@@ -1,0 +1,19 @@
+# One compiler for every build of this repository: CI, a developer's machine,
+# and later the mobile builds. Recorded in docs/DECISIONS.md (D5).
+#
+# 1.98.0 is the compiler Rep-1 pins in its own rust-toolchain.toml, so the
+# library is compiled here by exactly the compiler its own board verified it
+# on. It is newer than both floors that bind this workspace: mochimo-crypto's
+# rust-version (1.89, for `std::fs::File::try_lock`) and iced 0.14.0's
+# rust-version (1.88).
+#
+# Moving the pin is a decision, made with the library's `rev` in mind: when
+# Rep-1 moves its own compiler, this file follows it in the same change that
+# moves `rev`.
+#
+# `clippy` and `rustfmt` are named because CI runs both and a minimal rustup
+# profile carries neither. rustdoc ships inside the `rustc` component.
+
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]

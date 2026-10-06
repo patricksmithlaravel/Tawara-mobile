@@ -1,0 +1,4 @@
+# Every text file is checked out with LF line endings, on every platform:
+# the scripts under platform/ run in bash, and the policy test reads the
+# manifests as bytes.
+* text=auto eol=lf
