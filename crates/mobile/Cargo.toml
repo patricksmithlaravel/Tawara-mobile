@@ -1,0 +1,40 @@
+[package]
+name = "tawara-mobile"
+description = "The Tawara entry points for Android and iOS."
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lib]
+# Android loads this crate as `libtawara_mobile.so`, built with
+# `cargo rustc --crate-type cdylib` for each Android target
+# (platform/android/build.sh), so the workspace's own builds make no shared
+# library they do not need.
+crate-type = ["lib"]
+
+[[bin]]
+# iOS: the app bundle's executable. winit calls `UIApplicationMain` from it,
+# so it must be the process's `main` (docs/spikes/P1-REPORT.md). Elsewhere it
+# says it is for iOS and stops.
+name = "tawara"
+path = "src/main.rs"
+
+[dependencies]
+tawara-app.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+iced_winit.workspace = true
+winit.workspace = true
+jni.workspace = true
+ndk-context.workspace = true
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2.workspace = true
+block2.workspace = true
+objc2-foundation.workspace = true
+objc2-ui-kit.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

@@ -1,0 +1,104 @@
+[workspace]
+resolver = "3"
+members = ["crates/mobile"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# The wallet's licence (Tawara-wallet's docs/PLAN.md section 6): the Mochimo
+# Cryptocurrency Engine License Agreement, version 1.0, the same file as
+# Tawara-wallet's `LICENSE.md`, byte for byte. It has no SPDX identifier,
+# which is why this is `license-file` and why deny.toml says how to read it.
+license-file = "LICENSE.md"
+# Nothing here is published to a registry; the apps ship as signed packages.
+publish = false
+repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
+
+[workspace.dependencies]
+# THE APPLICATION, FROM TAWARA-WALLET, PINNED BY FULL COMMIT HASH
+# (Tawara-wallet's docs/DECISIONS.md D33).
+#
+# `tawara-app` is the same iced application the desktop runs: every screen,
+# the wallet's worker, and through `tawara-wallet-core` the library and every
+# refusal it makes. This repository holds only what is mobile: the entry
+# points, the platform glue and the platform files. A change the phones need
+# in a screen, in the wallet's logic or in text that protects the user is
+# made in Tawara-wallet and taken here by moving `rev`, and nothing else: no
+# `[patch]`, `[replace]`, vendored copy or path override.
+# `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
+#
+# At a216330: Tawara-wallet's pull request #15, on `main` after #13 (phase 4
+# (a)): `run_in(Host)` and `left_foreground`, which the shells call; the
+# wipe of whatever secret is typed when the app leaves the foreground,
+# before any further input; the `Leaving` the iOS shell waits on, done when
+# the interface has taken the worker's answer to the move; and stores kept
+# inside the private folder (D32 items 6 and 7). Its merge keeps the commit
+# reachable; the pin moves to `main` after it.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "a21633043d9dbf7956eef5d680ba39f84fccddf7" }
+
+# THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
+# platform.
+#
+# `iced_winit` comes from the owner's iced fork at the commit Tawara-wallet
+# pins for `iced` (D32 items 1 and 8), so the build holds one copy of every
+# iced crate; the policy test holds the lockfile to it. Android: the fork's
+# `set_android_app` and `on_lifecycle`, winit's NativeActivity backend
+# (exactly one android-activity backend must be on, and iced_winit turns on
+# none), and JNI for the clipboard and Back. iOS: the fork puts winit's
+# window in UIKit's window scene; the shell uses the versions winit 0.30.13
+# already links, for the pasteboard, the app-switcher cover, the store's
+# protection class and its backup exclusion. No Java, Kotlin, Swift or
+# Objective-C source (D4).
+iced_winit = { git = "https://github.com/patricksmithlaravel/iced_mobile", rev = "71f00e8475815532b25e7e07083abb73bd845cde", default-features = false }
+winit = { version = "=0.30.13", default-features = false, features = ["android-native-activity"] }
+jni = "0.22.4"
+ndk-context = "0.1.1"
+objc2 = "0.5.2"
+block2 = "0.5.1"
+objc2-foundation = { version = "0.2.2", features = [
+    "NSArray",
+    "NSDictionary",
+    "NSError",
+    "NSFileManager",
+    "NSGeometry",
+    "NSNotification",
+    "NSOperation",
+    "NSPathUtilities",
+    "NSString",
+    "NSThread",
+    "NSURL",
+    "NSValue",
+    "block2",
+] }
+objc2-ui-kit = { version = "0.2.2", features = [
+    "block2",
+    "UIApplication",
+    "UIColor",
+    "UIPasteboard",
+    "UIResponder",
+    "UIScene",
+    "UIView",
+    "UIWindow",
+    "UIWindowScene",
+] }
+
+# The policy test's only dependency: it reads the manifests and the lockfile.
+toml = "0.9"
+
+# THE RELEASE PROFILE IS A SECURITY PROPERTY OF THE LIBRARY, AND PROFILES ARE
+# ONLY READ FROM THE ROOT OF THE WORKSPACE BEING BUILT. Neither the library's
+# nor Tawara-wallet's `[profile.release]` reaches a build of this repository:
+# they are restated here or silently lost.
+#
+# `panic = "unwind"`: every scrub of key material in mochimo-crypto runs
+# through `Drop` (`zeroize`, `Zeroizing`, `Secret`). Under `panic = "abort"`
+# destructors do not run, so the master seed would stay in memory on exactly
+# the path where it matters most.
+#
+# `overflow-checks = true`: cargo turns them off in release by default, so a
+# bare `+` on a balance would wrap silently in the build users run.
+#
+# `crates/mobile/tests/policy.rs` fails if either line changes.
+[profile.release]
+panic = "unwind"
+overflow-checks = true

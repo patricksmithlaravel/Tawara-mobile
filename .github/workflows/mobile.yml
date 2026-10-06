@@ -1,0 +1,170 @@
+# Tawara on Android and iOS (Tawara-wallet's docs/PLAN.md phase 4 and
+# docs/DECISIONS.md D32, D33): the workspace checked, the APK built and run
+# on an emulator, the iOS app built and run on a simulator, and the iOS app
+# linked for a device.
+#
+# As in Tawara-wallet's ci.yml: no actions, plain commands against the runner's own tools
+# (the Android SDK on the Linux image, Xcode on the macOS one), no token
+# permissions, an anonymous clone of the commit by its SHA. A run's only
+# output is its job log and step summary: `TAWARA` lines from the
+# application, `CHECK` lines from platform/android/tawara.sh and
+# platform/ios/tawara.sh, and the iOS screenshots as base64 between
+# `-----BEGIN SHOT name-----` markers. Android's screens cannot be captured:
+# FLAG_SECURE blanks them (D32 item 4), which is one of the checks.
+#
+# WHAT A GREEN RUN SAYS. That this commit builds for Android (arm64 and
+# x86_64) and iOS (device and simulator); that on an x86_64 emulator and an
+# iPhone simulator the application starts in its private directory, with
+# FLAG_SECURE on Android and the store's folder protected and excluded from
+# backups on iOS, its window in UIKit's window scene (D32 item 8), and locks
+# on leaving the screen; and that the Android manifest carries the backup
+# rules and the iOS bundle the scene manifest. It says nothing about a real phone, which the
+# owner checks (D32 item 2).
+
+name: mobile
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    # The workspace on the host: formatting, clippy for the host and both iOS
+    # targets, the policy test (crates/mobile/tests/policy.rs) and
+    # cargo-deny, built from crates.io at a pinned version as Tawara-wallet's
+    # ci.yml does. The Android targets need the NDK, so their clippy is the
+    # android job's build.
+    name: check
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Clone the commit
+        run: |
+          git clone --quiet --no-checkout "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$HOME/tawara"
+          git -C "$HOME/tawara" fetch --quiet origin "$GITHUB_SHA"
+          git -C "$HOME/tawara" checkout --quiet --detach "$GITHUB_SHA"
+          echo "TAWARA=$HOME/tawara" >> "$GITHUB_ENV"
+
+      - name: Toolchain and iOS targets
+        run: |
+          cd "$TAWARA"
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          rustc -vV
+
+      - name: cargo fmt --check
+        run: cd "$TAWARA" && cargo fmt --all --check
+
+      - name: cargo clippy (host, iOS device, iOS simulator)
+        run: |
+          cd "$TAWARA"
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo clippy --workspace --all-targets --locked --target aarch64-apple-ios -- -D warnings
+          cargo clippy --workspace --all-targets --locked --target aarch64-apple-ios-sim -- -D warnings
+
+      - name: cargo test (the policy test)
+        run: cd "$TAWARA" && cargo test --workspace --locked
+
+      - name: cargo deny --locked check
+        run: |
+          cd "$TAWARA"
+          cargo install --quiet --locked cargo-deny --version 0.20.2
+          cargo deny --version
+          cargo deny --locked check
+
+  android:
+    name: android, emulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Clone the commit
+        run: |
+          git clone --quiet --no-checkout "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$HOME/tawara"
+          git -C "$HOME/tawara" fetch --quiet origin "$GITHUB_SHA"
+          git -C "$HOME/tawara" checkout --quiet --detach "$GITHUB_SHA"
+          echo "TAWARA=$HOME/tawara" >> "$GITHUB_ENV"
+
+      - name: Toolchain, Android targets and host
+        run: |
+          cd "$TAWARA"
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-linux-android x86_64-linux-android
+          echo "image   ${ImageOS:-unnamed} ${ImageVersion:-unversioned}"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          nproc; free -g; df -h / | tail -1
+          rustc -vV
+
+      - name: Build libtawara_mobile.so (arm64-v8a, x86_64)
+        run: bash "$TAWARA/platform/android/tawara.sh" build
+
+      - name: Package, align, sign and verify the APK
+        run: bash "$TAWARA/platform/android/tawara.sh" apk
+
+      - name: Emulator and checks
+        run: bash "$TAWARA/platform/android/tawara.sh" emulator
+
+  ios-simulator:
+    name: ios, simulator
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    steps:
+      - name: Clone the commit
+        run: |
+          git clone --quiet --no-checkout "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$HOME/tawara"
+          git -C "$HOME/tawara" fetch --quiet origin "$GITHUB_SHA"
+          git -C "$HOME/tawara" checkout --quiet --detach "$GITHUB_SHA"
+          echo "TAWARA=$HOME/tawara" >> "$GITHUB_ENV"
+
+      - name: Toolchain, simulator target and host
+        run: |
+          cd "$TAWARA"
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-apple-ios-sim
+          echo "image   ${ImageOS:-unnamed} ${ImageVersion:-unversioned}"
+          xcode-select -p
+          rustc -vV
+
+      - name: Build, bundle, simulator and checks
+        run: bash "$TAWARA/platform/ios/tawara.sh" simulator
+
+  ios-device:
+    name: ios, device build
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    steps:
+      - name: Clone the commit
+        run: |
+          git clone --quiet --no-checkout "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$HOME/tawara"
+          git -C "$HOME/tawara" fetch --quiet origin "$GITHUB_SHA"
+          git -C "$HOME/tawara" checkout --quiet --detach "$GITHUB_SHA"
+          echo "TAWARA=$HOME/tawara" >> "$GITHUB_ENV"
+
+      - name: Toolchain, device target and host
+        run: |
+          cd "$TAWARA"
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-apple-ios
+          xcode-select -p
+          rustc -vV
+
+      - name: Build and link for a device
+        run: bash "$TAWARA/platform/ios/tawara.sh" device
