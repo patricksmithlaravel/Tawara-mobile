@@ -227,9 +227,10 @@ fn uncover(_: MainThreadMarker) {
 /// kept running until the lock is done (D32 item 6). The worker locks after
 /// the command it is running, which a node request or a spend being
 /// submitted can hold, and iOS may suspend the process as soon as this
-/// returns; and what is typed, or a recovery phrase shown, is wiped by the
-/// interface on its next message, on the main thread. So UIKit is asked for
-/// background time, which ends when both are done (`Leaving`). If the time
+/// returns; and what is typed, or a recovery phrase shown or still on its
+/// way from the worker, is the interface's to drop, on the main thread. So
+/// UIKit is asked for background time, which ends when the interface has
+/// taken the worker's answer to the move (`Leaving`). If the time
 /// runs out first, the process ends itself rather than be suspended with
 /// the store's key in memory (the owner's choice, D32 item 6): the next
 /// start is locked, and nothing persistent is lost.

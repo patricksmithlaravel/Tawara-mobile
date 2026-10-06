@@ -27,14 +27,14 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At edbfa1f: pull request #13's head (phase 4 (a)), with `run_in(Host)` and
-# `left_foreground`, which the shells call; the wipe of whatever secret is
-# typed when the app leaves the foreground, done before any further input
-# whatever the worker is doing, with no text taken from a field drawn
-# before the move; and the `Leaving` that says when the lock and the
-# interface's own wipe are done, which the iOS shell waits on (D32 item 6). Its merge keeps
-# the commit reachable; the pin moves to `main` after it.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "edbfa1ff8ba192ece09d0ae12259685137fda28f" }
+# At a216330: Tawara-wallet's pull request #15, on `main` after #13 (phase 4
+# (a)): `run_in(Host)` and `left_foreground`, which the shells call; the
+# wipe of whatever secret is typed when the app leaves the foreground,
+# before any further input; the `Leaving` the iOS shell waits on, done when
+# the interface has taken the worker's answer to the move; and stores kept
+# inside the private folder (D32 items 6 and 7). Its merge keeps the commit
+# reachable; the pin moves to `main` after it.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "a21633043d9dbf7956eef5d680ba39f84fccddf7" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
