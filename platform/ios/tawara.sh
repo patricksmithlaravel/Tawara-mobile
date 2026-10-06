@@ -117,6 +117,14 @@ PY
   xcrun simctl boot "$UDID"
   xcrun simctl bootstatus "$UDID" -b
   xcrun simctl install "$UDID" "$app"
+  # Settings is what the checks below put in front of the app. Its first
+  # launch on a new simulator is slow, and the switch it causes can come
+  # well after `simctl launch` returns: launch it once now, so the timed
+  # waits below measure the app and not Settings' cold start (Tawara-mobile
+  # #1's review).
+  xcrun simctl launch "$UDID" com.apple.Preferences >/dev/null
+  sleep 10
+  xcrun simctl terminate "$UDID" com.apple.Preferences >/dev/null 2>&1 || true
   endgroup
   trap 'evidence; xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true' EXIT
 
@@ -145,10 +153,12 @@ PY
   endgroup
 
   group "to the background and back"
-  local front
+  # A hosted simulator can take a while over a switch of apps; each step
+  # below waits this long for its line before it is judged.
+  local switch=90 front
   front=$(wc -l <"$err")
   xcrun simctl launch "$UDID" com.apple.Preferences >/dev/null
-  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: inactive; covered$' 20 || true)
+  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: inactive; covered$' "$switch" || true)
   check background.covered "${line:-no cover line}" test -n "$line"
   # The scene life cycle (D32 item 8): the iced fork puts winit's window in
   # the scene the manifest declares, or nothing is shown. Read when the
@@ -156,14 +166,17 @@ PY
   # window came in.
   line=$(wait_after "$err" "$front" '^TAWARA scene: key window in scene=' 5 || true)
   check scene.window "${line:-no scene line}" grep -q 'scene=true$' <<<"$line"
-  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: background; locking$' 20 || true)
+  # `locked`, not `locking`: the shell prints it only once the worker has
+  # dropped the session, which it may do after a running command (D32
+  # item 6).
+  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: background; locked$' "$switch" || true)
   check background.locks "${line:-no lock line}" test -n "$line"
   sleep 3
   shot 02-settings-in-front
   front=$(wc -l <"$err")
   out=$(xcrun simctl launch "$UDID" "$BUNDLE")
   pid2=$(awk '{print $NF}' <<<"$out")
-  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: active; uncovered$' 20 || true)
+  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: active; uncovered$' "$switch" || true)
   check return.uncovered "${line:-no uncover line}" test -n "$line"
   check return.same_process "pid $pid, then $pid2" test "$pid" = "$pid2"
   sleep 5

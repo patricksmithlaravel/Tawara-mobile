@@ -10,6 +10,9 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use block2::RcBlock;
 use objc2::rc::Retained;
@@ -22,7 +25,7 @@ use objc2_foundation::{
 use objc2_ui_kit::{
     UIApplication, UIApplicationDidBecomeActiveNotification,
     UIApplicationDidEnterBackgroundNotification, UIApplicationWillResignActiveNotification,
-    UIColor, UIPasteboard, UIView, UIViewAutoresizing,
+    UIBackgroundTaskInvalid, UIColor, UIPasteboard, UIView, UIViewAutoresizing,
 };
 use tawara_app::Host;
 
@@ -220,10 +223,100 @@ fn uncover(_: MainThreadMarker) {
     eprintln!("TAWARA lifecycle: active; uncovered");
 }
 
-/// In the background: the wallet locks there and then (D32 item 6).
-fn entered_background(_: MainThreadMarker) {
+/// In the background: the wallet locks there and then, and the process is
+/// kept running until the lock is done (D32 item 6). The worker locks after
+/// the command it is running, which a node request or a spend being
+/// submitted can hold, and iOS may suspend the process as soon as this
+/// returns; so UIKit is asked for background time, which ends when the lock
+/// is done. If the time runs out first, the process ends itself rather than
+/// be suspended with the store's key in memory (the owner's choice, D32
+/// item 6): the next start is locked, and nothing persistent is lost.
+fn entered_background(mtm: MainThreadMarker) {
     eprintln!("TAWARA lifecycle: background; locking");
-    tawara_app::left_foreground();
+    let task = Arc::new(Task::default());
+    let expired = {
+        let task = Arc::clone(&task);
+        RcBlock::new(move || {
+            if !task.locked.load(Ordering::SeqCst) {
+                eprintln!("TAWARA lifecycle: background time ran out before the lock; ending");
+                std::process::exit(0);
+            }
+            // SAFETY: UIKit calls the expiration handler on the main thread.
+            task.end(unsafe { MainThreadMarker::new_unchecked() });
+        })
+    };
+    // SAFETY: a UIKit call on the main thread; the name is a valid string
+    // and the handler a block UIKit copies.
+    let id = unsafe {
+        UIApplication::sharedApplication(mtm).beginBackgroundTaskWithName_expirationHandler(
+            Some(&NSString::from_str("Tawara: locking the wallet")),
+            Some(&expired),
+        )
+    };
+    task.id.store(id, Ordering::SeqCst);
+    let leaving = tawara_app::left_foreground();
+
+    // SAFETY: UIBackgroundTaskInvalid is UIKit's own constant.
+    if id == unsafe { UIBackgroundTaskInvalid } {
+        // No background time at all: wait a moment here, then the same rule.
+        if !leaving.wait(Duration::from_secs(1)) {
+            eprintln!("TAWARA lifecycle: no background time and the lock is not done; ending");
+            std::process::exit(0);
+        }
+        eprintln!("TAWARA lifecycle: background; locked");
+        return;
+    }
+
+    let spawned = std::thread::Builder::new()
+        .name("tawara-background".into())
+        .spawn(move || {
+            while !leaving.wait(Duration::from_secs(1)) {
+                if task.ended.load(Ordering::SeqCst) {
+                    return;
+                }
+            }
+            task.locked.store(true, Ordering::SeqCst);
+            eprintln!("TAWARA lifecycle: background; locked");
+            // UIApplication is the main thread's: end the task there.
+            let block = RcBlock::new(move || {
+                // SAFETY: the main queue runs its operations on the main
+                // thread.
+                task.end(unsafe { MainThreadMarker::new_unchecked() });
+            });
+            // SAFETY: the main queue is always valid, and the block is one
+            // the queue copies.
+            unsafe { NSOperationQueue::mainQueue().addOperationWithBlock(&block) };
+        });
+    if spawned.is_err() {
+        // No thread to wait for the lock on: the same rule as when the
+        // background time runs out.
+        eprintln!("TAWARA lifecycle: no thread to wait for the lock; ending");
+        std::process::exit(0);
+    }
+}
+
+/// One stretch of background time, shared by its expiration handler and the
+/// thread waiting for the lock.
+#[derive(Default)]
+struct Task {
+    id: AtomicUsize,
+    locked: AtomicBool,
+    ended: AtomicBool,
+}
+
+impl Task {
+    /// End the background time, once, whichever of the lock and the
+    /// expiration comes first.
+    fn end(&self, mtm: MainThreadMarker) {
+        if !self.ended.swap(true, Ordering::SeqCst) {
+            // SAFETY: a UIKit call on the main thread with the identifier
+            // UIKit gave.
+            unsafe {
+                UIApplication::sharedApplication(mtm)
+                    .endBackgroundTask(self.id.load(Ordering::SeqCst));
+            }
+        }
+    }
 }
 
 /// The application's background colour, as `UIColor` takes it.

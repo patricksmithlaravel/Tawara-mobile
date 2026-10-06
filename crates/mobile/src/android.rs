@@ -72,7 +72,10 @@ fn make_private(dir: &Path) -> bool {
 fn lifecycle(event: iced_winit::Lifecycle) {
     if event == iced_winit::Lifecycle::Suspended {
         eprintln!("TAWARA lifecycle: suspended; locking");
-        tawara_app::left_foreground();
+        // Not waited for: Android's process is not suspended the moment
+        // this returns, and bounding the wait here as on iOS was declined
+        // for now (D32 item 6).
+        let _ = tawara_app::left_foreground();
     }
 }
 
