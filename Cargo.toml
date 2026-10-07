@@ -27,15 +27,14 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At 25b03e5: Tawara-wallet's pull request #15, on `main` after #13 (phase 4
-# (a)): `run_in(Host)` and `left_foreground`, which the shells call; the
-# wipe of whatever secret is typed when the app leaves the foreground,
-# before any further input; the `Leaving` the iOS shell waits on, done when
-# the interface has taken the worker's answer to the move, or its
-# `Stopped`, which now comes after the queued commands are dropped; and
-# stores kept inside the private folder (D32 items 6 and 7). Its merge
-# keeps the commit reachable; the pin moves to `main` after it.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "25b03e50fc180e1594127b444f7911ee9028ca28" }
+# At 38dd452: Tawara-wallet's `main`, with pull requests #13 (phase 4 (a))
+# and #15 merged: `run_in(Host)` and `left_foreground`, which the shells
+# call; the wipe of whatever secret is typed when the app leaves the
+# foreground, before any further input; the `Leaving` the iOS shell waits
+# on, done when the interface has taken the worker's answer to the move,
+# or its `Stopped`, which comes after the queued commands are dropped; and
+# stores kept inside the private folder (D32 items 6 and 7).
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "38dd452f45d839f83fc6bdbfb076b1f9603426a0" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
