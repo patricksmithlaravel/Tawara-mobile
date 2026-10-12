@@ -11,11 +11,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+// winit is the fork's vendored copy, reached through iced_winit so that the
+// build holds one copy of it (D32 item 9 (b)).
+use iced_winit::winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 use jni::objects::{JObject, JString, JValue};
 use jni::vm::JavaVM;
 use jni::{jni_sig, jni_str};
 use tawara_app::Host;
-use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 /// The activity, for Back.
 static APP: OnceLock<AndroidApp> = OnceLock::new();
