@@ -4,21 +4,27 @@
 //! The activity is `android.app.NativeActivity` (platform/android). JNI
 //! reaches the platform's classes through the `Application` that
 //! android-activity registers with `ndk-context`, as phase 1's spike did
-//! (docs/spikes/P1-REPORT.md). What this writes on stderr goes to logcat
-//! under the tag `RustStdoutStderr`, one `TAWARA` line per fact, never a
-//! secret.
+//! (docs/spikes/P1-REPORT.md). What this writes on stderr, and the exit
+//! line written directly, goes to logcat under the tag `RustStdoutStderr`,
+//! one `TAWARA` line per fact, never a secret.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 
 use jni::objects::{JObject, JString, JValue};
 use jni::vm::JavaVM;
 use jni::{jni_sig, jni_str};
-use tawara_app::Host;
+use tawara_app::{Host, Leaving};
 use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 /// The activity, for Back.
 static APP: OnceLock<AndroidApp> = OnceLock::new();
+
+/// The lock that the last move to the background started, kept for the line
+/// the process writes as it ends (D32 item 9). `None` until the system has
+/// suspended the application.
+static LEAVING: Mutex<Option<Leaving>> = Mutex::new(None);
 
 /// Start the application in the activity android-activity has created.
 pub fn main(app: AndroidApp) {
@@ -41,6 +47,9 @@ pub fn main(app: AndroidApp) {
     if let Err(error) = tawara_app::run_in(host) {
         eprintln!("TAWARA stop: {error}");
     }
+    // Asked without waiting, so the line shows whether the lock is finished
+    // when the process ends (D32 item 9).
+    log_exit(lock_state());
     // winit allows one event loop per process: a second `android_main` here
     // could not run one, so the process ends with this one.
     std::process::exit(0);
@@ -74,8 +83,32 @@ fn lifecycle(event: iced_winit::Lifecycle) {
         eprintln!("TAWARA lifecycle: suspended; locking");
         // Not waited for: Android's process is not suspended the moment
         // this returns, and bounding the wait here as on iOS was declined
-        // for now (D32 item 6).
-        let _ = tawara_app::left_foreground();
+        // for now (D32 item 6). The Leaving is kept for the exit's line.
+        let leaving = tawara_app::left_foreground();
+        *LEAVING.lock().unwrap_or_else(PoisonError::into_inner) = Some(leaving);
+    }
+}
+
+/// Whether the lock has finished, asked without waiting: `Leaving::wait`
+/// with no time to wait answers at once, `true` once the interface has done
+/// with the move, or when there was nothing to do (D32 item 9).
+fn lock_state() -> &'static str {
+    let kept = LEAVING.lock().unwrap_or_else(PoisonError::into_inner);
+    match kept.as_ref() {
+        None => "no lock was started",
+        Some(leaving) if leaving.wait(Duration::ZERO) => "lock done",
+        Some(_) => "lock not done",
+    }
+}
+
+/// Logs the exit with the lock's state. It goes to logcat directly, not
+/// through stderr: the thread that forwards stderr to logcat, in
+/// android-activity (`forward_stdio_to_logcat`), may not have read a line
+/// written just before `exit`, and then the line is lost. `Log.i` hands the
+/// line to logd before it returns (D32 item 9).
+fn log_exit(state: &str) {
+    if let Err(error) = log_line(&format!("TAWARA exit: {state}")) {
+        eprintln!("TAWARA exit: not logged: {error:?}");
     }
 }
 
@@ -110,6 +143,21 @@ fn with_context<T>(
         // SAFETY: a global reference that android-activity never deletes.
         let context = unsafe { env.as_cast_raw::<JObject>(&context)? };
         f(env, &context)
+    })
+}
+
+/// Writes `line` to logcat under the tag the application's stderr lines carry.
+fn log_line(line: &str) -> jni::errors::Result<()> {
+    with_context(|env, _context| {
+        let tag = env.new_string("RustStdoutStderr")?;
+        let message = env.new_string(line)?;
+        env.call_static_method(
+            jni_str!("android/util/Log"),
+            jni_str!("i"),
+            jni_sig!((java.lang.String, java.lang.String) -> jint),
+            &[JValue::Object(&tag), JValue::Object(&message)],
+        )?;
+        Ok(())
     })
 }
 

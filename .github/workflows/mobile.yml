@@ -17,8 +17,10 @@
 # iPhone simulator the application starts in its private directory, with
 # FLAG_SECURE on Android and the store's folder protected and excluded from
 # backups on iOS, its window in UIKit's window scene (D32 item 8), and locks
-# on leaving the screen; and that the Android manifest carries the backup
-# rules and the iOS bundle the scene manifest. It says nothing about a real phone, which the
+# on leaving the screen; that the Android manifest carries the backup rules
+# and the iOS bundle the scene manifest; and, on the x86_64 emulator, that
+# the lock is done when the process exits after Back with 'Don't keep
+# activities' on (D32 item 9). It says nothing about a real phone, which the
 # owner checks (D32 item 2).
 
 name: mobile

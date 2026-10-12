@@ -10,7 +10,8 @@
 # 1's spike was (docs/spikes/P1-REPORT.md). A release key is phase 5's.
 #
 # The application prints `TAWARA ...` lines on stderr, which android-activity
-# sends to logcat under the tag RustStdoutStderr. This script prints
+# sends to logcat under the tag RustStdoutStderr; the exit line it writes to
+# logcat directly, under the same tag. This script prints
 # `CHECK PASS|FAIL <name>: <detail>` lines and a table in the step summary,
 # and fails if any check failed.
 set -Eeuo pipefail
@@ -150,6 +151,44 @@ wait_log() { # wait_log MARK ERE SECONDS: prints the first matching application 
 app_pid() { ash pidof "$PKG" || true; }
 resumed() { ash dumpsys activity activities | grep -m1 -E 'topResumedActivity=|ResumedActivity:' || true; }
 crashed() { grep -E "FATAL EXCEPTION|Fatal signal|$TAG: thread .* panicked" "$LOG" >/dev/null 2>&1; }
+tag_lines() { tail -n +"$(($1 + 1))" "$LOG" | grep -E "$TAG" || true; } # since MARK
+# The application's lines one process logged, read from the device's own
+# buffer: the exit line is the last thing the process writes, so it should
+# not depend on adb having written the file yet.
+device_lines() { # device_lines PID
+  ash logcat -d -v threadtime --pid="$1" | grep -E "$TAG: TAWARA " | sed -E "s/.*$TAG: //" || true
+}
+wait_device() { # wait_device PID ERE SECONDS: prints the first matching line of that process
+  local t=0 line
+  while :; do
+    line=$(device_lines "$1" | grep -E -m1 "$2" || true)
+    [ -n "$line" ] && { echo "$line"; return 0; }
+    [ "$t" -ge "$3" ] && return 1
+    sleep 1
+    t=$((t + 1))
+  done
+}
+# A SIGABRT since MARK in one of the PIDs (logcat's third column) or naming
+# the package, so that another process's abort is not reported as the
+# application's; the no_crash sweep still catches every process.
+aborts() { # aborts MARK PID...
+  local mark=$1
+  shift
+  tail -n +"$((mark + 1))" "$LOG" | grep -E 'Fatal signal 6|SIGABRT' \
+    | awk -v pids=" $* " -v pkg="$PKG" 'index(pids, " " $3 " ") || index($0, pkg)' || true
+}
+# 'Don't keep activities', and its value before the checks changed it:
+# empty while untouched, `null` when it was never set. The EXIT trap puts it
+# back, so it is global, not the function's.
+KEEP_WAS=
+dont_keep_activities() { ash settings put global always_finish_activities "$1"; } # 1 on, 0 off
+restore_keep() {
+  case $KEEP_WAS in
+    '') ;;
+    null) ash settings delete global always_finish_activities >/dev/null ;;
+    *) dont_keep_activities "$KEEP_WAS" ;;
+  esac
+}
 
 set_ini() {
   local f=$1 k=$2 v=$3
@@ -250,7 +289,9 @@ on_emulator() {
   # this one at the end whatever it found (Tawara-mobile#1's review).
   : >"$OUT/results.tsv"
   emulator_up
-  trap 'summary; emulator_down' EXIT
+  # 'Don't keep activities' is also put back here, so that a failure part-way
+  # through the Back checks does not leave it changed (D32 item 9).
+  trap 'restore_keep >/dev/null 2>&1 || true; summary; emulator_down' EXIT
 
   group "the manifest"
   # The backup rules (docs/PLAN.md section 4.5; D32 item 7).
@@ -309,6 +350,70 @@ on_emulator() {
   ash am start -W -n "$PKG/$ACTIVITY"
   sleep 5
   check back.same_process "the process lives on (pid $(app_pid), was $pid)" test "$(app_pid)" = "$pid"
+  endgroup
+
+  group "Back and the lock before the exit (D32 item 9)"
+  # The process ends as soon as run_in returns, so the lock may not be done
+  # by then. The check asks whether it is (D32 item 9). The first Back keeps
+  # the activity, and the process lives on. With 'Don't keep activities' on,
+  # Back destroys the activity as it leaves the screen. crates.io winit
+  # 0.30.13 ignores that Destroy, so its loop does not end and the process
+  # stays (exit.ended); the fork's release that D32 item 9 moves to ends the
+  # loop on it, and the 'TAWARA exit' line then says whether the lock had
+  # finished. Whether it has is a race between the interface taking the
+  # worker's answer and the loop ending, so one run proves little: each of
+  # the runs is a fresh process, and the checks give the count. A run counts
+  # only if its own process logged the lock after Back, so that 'lock done'
+  # is this move's lock and not a move with nothing to do. A SIGABRT from
+  # these processes in this window fails too.
+  local m0 kept runs=5 run rpid line suspended exit_line gone aborted
+  local pids=$pid started=0 locked=0 finished=0 ended=0
+  m0=$(mark)
+  ash input keyevent KEYCODE_BACK
+  sleep 5
+  echo "$TAG lines after Back from the foreground:"
+  tag_lines "$m0"
+  KEEP_WAS=$(ash settings get global always_finish_activities)
+  dont_keep_activities 1
+  kept=$(ash settings get global always_finish_activities)
+  check exit.setting "'Don't keep activities' reads $kept, was $KEEP_WAS" test "$kept" = 1
+  for ((run = 1; run <= runs; run++)); do
+    ash am force-stop "$PKG"
+    m=$(mark)
+    ash am start -W -n "$PKG/$ACTIVITY"
+    if ! wait_log "$m" '^TAWARA start: ' 60 >/dev/null; then
+      echo "run $run: the relaunched process did not start"
+      continue
+    fi
+    started=$((started + 1))
+    sleep 5
+    rpid=$(app_pid)
+    pids="$pids $rpid"
+    m=$(mark)
+    ash input keyevent KEYCODE_BACK
+    suspended=no exit_line='no TAWARA exit line' gone=no
+    wait_device "$rpid" '^TAWARA lifecycle: suspended; locking$' 30 >/dev/null && suspended=yes
+    line=$(wait_device "$rpid" '^TAWARA exit: ' 30 || true)
+    [ -n "$line" ] && exit_line=$line
+    # Long enough for a SIGABRT in the exit to be logged after the exit line.
+    sleep 10
+    [ -z "$(app_pid)" ] && gone=yes
+    [ "$suspended" = yes ] && locked=$((locked + 1))
+    [ "$suspended" = yes ] && [ "$exit_line" = 'TAWARA exit: lock done' ] && finished=$((finished + 1))
+    [ "$gone" = yes ] && ended=$((ended + 1))
+    echo "run $run: pid $rpid; locking logged: $suspended; $exit_line; process ended: $gone"
+    echo "$TAG lines after Back with 'Don't keep activities' on:"
+    tag_lines "$m"
+  done
+  restore_keep
+  check exit.started "$started of $runs relaunched processes started" test "$started" = "$runs"
+  check exit.locks "$locked of $runs runs logged the lock after Back" test "$locked" = "$runs"
+  check exit.ended "$ended of $runs processes ended after Back" test "$ended" = "$runs"
+  check exit.lock "$finished of $runs runs: TAWARA exit: lock done" test "$finished" = "$runs"
+  # shellcheck disable=SC2086 # Split on purpose: one argument per pid.
+  aborted=$(aborts "$m0" $pids | tr '\n' ' ' | cut -c1-300)
+  check exit.no_sigabrt "${aborted:-no SIGABRT or Fatal signal 6 from the application since the first Back}" \
+    test -z "$aborted"
   endgroup
 
   if crashed; then
