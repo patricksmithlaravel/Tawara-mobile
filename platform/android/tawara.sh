@@ -293,11 +293,14 @@ on_emulator() {
   endgroup
 
   group "the store's directory"
-  # Not readable by other apps' users. The library makes the store's own
-  # folder 0700 inside it when a store is written (D21).
+  # no_backup/ is the store's parent (D21). android.rs makes it mode 0700,
+  # since the library refuses a parent as open as files/, which is 0771
+  # (docs/spikes/P1-REPORT.md, A19). The mode must be exactly that: testing
+  # only the others' bits would pass 0771 or 0750, which let the group in.
+  # toybox's ls prints the mode and then a space.
   local listing
   listing=$(ash run-as "$PKG" ls -ld no_backup 2>&1 || true)
-  check no_backup.private "$listing" grep -qE '^d.{6}-' <<<"$listing"
+  check no_backup.private "$listing" grep -qE '^drwx------ ' <<<"$listing"
   endgroup
 
   group "Home: suspended and locked, then back"
