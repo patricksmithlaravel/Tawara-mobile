@@ -258,6 +258,18 @@ on_emulator() {
     grep -qE 'allowBackup\(0x[0-9a-f]+\)=(false|\(type 0x12\)0x0)' "$OUT/manifest.txt"
   check manifest.dataExtractionRules "android:dataExtractionRules names the rules" \
     grep -q 'android:dataExtractionRules' "$OUT/manifest.txt"
+  # The activity handles every configuration change this mask names (D32
+  # item 9), so the mask must hold the eighteen names of API 35. A name left
+  # out lets Android recreate the activity, which ends the application. The
+  # detail shows each mask aapt2 read, to compare bit by bit with 0x5000ffff.
+  # They are joined on one line, so a second element with a mask of its own
+  # fails the check rather than hide behind the first.
+  local changes
+  changes=$(awk 'match($0, /configChanges\(0x[0-9a-f]+\)=.*/) {
+    s = s (s == "" ? "" : "; ") substr($0, RSTART)
+  } END { print (s == "" ? "no configChanges" : s) }' "$OUT/manifest.txt")
+  check manifest.configChanges "want 0x5000ffff (18 names): $changes" \
+    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0x5000ffff$' <<<"$changes"
   endgroup
 
   group "install and start"
