@@ -158,8 +158,11 @@ PY
   local switch=90 front
   front=$(wc -l <"$err")
   xcrun simctl launch "$UDID" com.apple.Preferences >/dev/null
-  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: inactive; covered$' "$switch" || true)
-  check background.covered "${line:-no cover line}" test -n "$line"
+  # The application logs "cover added" only once the cover is on the window.
+  # With no key window it logs a different line, which must not pass here
+  # (D32 item 9).
+  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: inactive; cover added$' "$switch" || true)
+  check background.covered "${line:-no cover added line}" test -n "$line"
   # The scene life cycle (D32 item 8): the iced fork puts winit's window in
   # the scene the manifest declares, or nothing is shown. Read when the
   # cover goes on, well after launch, whichever order the scene and the
