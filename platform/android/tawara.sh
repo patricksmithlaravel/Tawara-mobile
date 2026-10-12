@@ -177,17 +177,132 @@ aborts() { # aborts MARK PID...
   tail -n +"$((mark + 1))" "$LOG" | grep -E 'Fatal signal 6|SIGABRT' \
     | awk -v pids=" $* " -v pkg="$PKG" 'index(pids, " " $3 " ") || index($0, pkg)' || true
 }
-# 'Don't keep activities', and its value before the checks changed it:
-# empty while untouched, `null` when it was never set. The EXIT trap puts it
-# back, so it is global, not the function's.
+# 'Don't keep activities' is the global setting always_finish_activities, and
+# the framework reads it only when it starts: ActivityManagerService.systemReady
+# calls retrieveSettings (AOSP android-15.0.0_r1), which sets the field that
+# OomAdjuster checks before it asks for every activity to be destroyed. A later
+# write to the setting changes the stored value and nothing else, so each change
+# writes the setting and reboots the emulator, and the field is then read back
+# with dumpsys (D32 item 9 (j)). The Developer Options switch sets the field
+# through the binder method setAlwaysFinish, which this test does not call: a
+# binder transaction number comes from the build's AIDL file, not from a
+# published interface, so a script that calls one is tied to its image.
+#
+# KEEP_WAS is the value before the test first changed it: empty while untouched,
+# `null` when it was never set. KEEP_CHANGED is yes from the first write until
+# the value is back, so the EXIT trap puts it back once and no more.
 KEEP_WAS=
-dont_keep_activities() { ash settings put global always_finish_activities "$1"; } # 1 on, 0 off
-restore_keep() {
-  case $KEEP_WAS in
-    '') ;;
-    null) ash settings delete global always_finish_activities >/dev/null ;;
-    *) dont_keep_activities "$KEEP_WAS" ;;
+KEEP_CHANGED=no
+
+# keep_write 1|0|delete: writes the setting, then reboots so the framework reads
+# it. Returns 1 when the emulator does not come back.
+keep_write() {
+  case $1 in
+    delete) ash settings delete global always_finish_activities >/dev/null || return 1 ;;
+    *) ash settings put global always_finish_activities "$1" || return 1 ;;
   esac
+  # The settings provider writes a change after a delay of up to two seconds
+  # (SettingsState.java, WRITE_SETTINGS_DELAY_MILLIS and its maximum), so the
+  # reboot waits for the file first.
+  sleep 3
+  reboot_and_wait
+}
+# dont_keep_activities 1|0: turns the option on or off, through a reboot.
+dont_keep_activities() {
+  KEEP_CHANGED=yes
+  keep_write "$1"
+}
+# Puts the option back as the test found it. Does nothing once that is done.
+restore_keep() {
+  local failed=0
+  [ "$KEEP_CHANGED" = yes ] || return 0
+  case $KEEP_WAS in
+    '') return 0 ;;
+    null) keep_write delete || failed=1 ;;
+    *) keep_write "$KEEP_WAS" || failed=1 ;;
+  esac
+  if [ "$failed" -eq 0 ]; then KEEP_CHANGED=no; fi
+  return "$failed"
+}
+# The EXIT trap's part: the option is put back, or the failure is said.
+restore_at_exit() {
+  restore_keep >/dev/null 2>&1 || echo "::error::'Don't keep activities' could not be put back to $KEEP_WAS"
+}
+
+# Reboots the emulator and waits until the framework answers again, then wakes
+# the screen and starts a new logcat stream. Returns 1 when the emulator does
+# not come back within about ten minutes.
+reboot_and_wait() {
+  local before="" after="" t=0
+  before=$(ash cat /proc/sys/kernel/random/boot_id || true)
+  # Without the old boot id, the old boot would pass for the new one, and the
+  # wait could end before the reboot had begun.
+  [ -n "$before" ] || return 1
+  # adb may report the connection closing as an error, so the boot id, not the
+  # status of the command, shows whether the reboot happened.
+  a reboot || true
+  until [ -n "$after" ] && [ "$after" != "$before" ]; do
+    [ "$t" -lt 300 ] || return 1
+    sleep 3
+    t=$((t + 3))
+    after=$(ash cat /proc/sys/kernel/random/boot_id || true)
+  done
+  until [ "$(ash getprop sys.boot_completed || true)" = 1 ]; do
+    [ "$t" -lt 600 ] || return 1
+    sleep 3
+    t=$((t + 3))
+  done
+  until a shell pm path android >/dev/null 2>&1; do
+    [ "$t" -lt 600 ] || return 1
+    sleep 2
+    t=$((t + 2))
+  done
+  ash input keyevent KEYCODE_WAKEUP || true
+  ash wm dismiss-keyguard || true
+  restart_log
+}
+# A reboot ends the logcat stream with its connection. The new stream appends to
+# the same file, so the marks taken with mark still hold. A new stream starts at
+# the beginning of the device's buffer, which after a reboot holds that boot's
+# lines, so the buffer is cleared first, as emulator_up does before the first
+# stream: no_crash and the SIGABRT check then read the application's window and
+# not the system's start (D32 item 9 (j)).
+restart_log() {
+  if [ -f "$OUT/logcat.pid" ]; then kill "$(cat "$OUT/logcat.pid")" 2>/dev/null || true; fi
+  a logcat -c || { echo "::error::the log could not be cleared after the reboot"; return 1; }
+  a logcat -v threadtime >>"$LOG" 2>&1 &
+  echo $! >"$OUT/logcat.pid"
+}
+# The count of the lines dumpsys prints for the framework's own field: one while
+# the field is on, since ActivityManagerService prints the line only then.
+runtime_keep() {
+  ash dumpsys activity processes | grep -c '^  mAlwaysFinishActivities=true$' || true
+}
+# destroy_state PID: what the event log holds since the last clear, which is
+# made just before Back. It prints 'destroyed' when the framework logged this
+# component's activity destroyed with the reason always-finish and PID had not
+# died before it, whether or not PID died afterwards, 'died' when PID died
+# first, and 'none' otherwise. The fields follow the tags'
+# definitions in AOSP android-15.0.0_r1: wm_destroy_activity is User, Token,
+# Task ID, Component Name and Reason, and am_proc_died is User, PID, Process
+# Name, OomAdj and ProcState. The component name is the activity's ComponentName
+# in its short form: here it is com.patricksmithlaravel.tawara/
+# android.app.NativeActivity, because that class name does not begin with the
+# package name, so the short form does not shorten it.
+destroy_state() {
+  ash logcat -b events -d -v threadtime | awk -v pid="$1" -v comp="$PKG/$ACTIVITY" '
+    state != "" { next }
+    /wm_destroy_activity/ && match($0, /\[.*\]/) {
+      n = split(substr($0, RSTART + 1, RLENGTH - 2), f, ",")
+      if (n == 5 && f[4] == comp && f[5] == "always-finish") state = "destroyed"
+      next
+    }
+    /am_proc_died/ && match($0, /\[.*\]/) {
+      n = split(substr($0, RSTART + 1, RLENGTH - 2), f, ",")
+      if (n >= 2 && f[2] == pid) state = "died"
+    }
+    END { print (state == "" ? "none" : state) }
+  '
 }
 
 set_ini() {
@@ -291,7 +406,7 @@ on_emulator() {
   emulator_up
   # 'Don't keep activities' is also put back here, so that a failure part-way
   # through the Back checks does not leave it changed (D32 item 9).
-  trap 'restore_keep >/dev/null 2>&1 || true; summary; emulator_down' EXIT
+  trap 'restore_at_exit; summary; emulator_down' EXIT
 
   group "the manifest"
   # The backup rules (docs/PLAN.md section 4.5; D32 item 7).
@@ -365,18 +480,39 @@ on_emulator() {
   # the runs is a fresh process, and the checks give the count. A run counts
   # only if its own process logged the lock after Back, so that 'lock done'
   # is this move's lock and not a move with nothing to do. A SIGABRT from
-  # these processes in this window fails too.
-  local m0 kept runs=5 run rpid line suspended exit_line gone aborted
-  local pids=$pid started=0 locked=0 finished=0 ended=0
+  # these processes in this window fails too. A run counts toward the exit
+  # checks only when the framework destroyed its activity: the event log must
+  # hold the destroy, for this component and with the reason always-finish,
+  # before the run's process died (D32 item 9 (j)). The process must also stay
+  # the one the run measured: a process alive afterwards has that PID, or the
+  # application started again in the window. Without that destroy, Back only
+  # backgrounds the activity, and a process that stays alive would look like an
+  # exit that did not happen. exit.destroyed counts the destroys on their own,
+  # so that 'not destroyed' and 'destroyed, but the lock not done' fail under
+  # different checks.
+  local m0 mr kept runtime restored state alive runs=5 run rpid line suspended exit_line gone aborted
+  local pids="" started=0 locked=0 finished=0 ended=0 destroyed=0
   m0=$(mark)
   ash input keyevent KEYCODE_BACK
   sleep 5
   echo "$TAG lines after Back from the foreground:"
   tag_lines "$m0"
+  # The first process's window ends with the reboot below, and after it the
+  # same PID may belong to another process, so its SIGABRT check is made now.
+  aborted=$(aborts "$m0" "$pid")
   KEEP_WAS=$(ash settings get global always_finish_activities)
-  dont_keep_activities 1
+  dont_keep_activities 1 || die "the emulator did not come back after the reboot that turns 'Don't keep activities' on"
+  mr=$(mark)
   kept=$(ash settings get global always_finish_activities)
   check exit.setting "'Don't keep activities' reads $kept, was $KEEP_WAS" test "$kept" = 1
+  # The framework read the stored value at boot, so its field should now hold
+  # it, and dumpsys shows whether it does before any run is measured. The runs
+  # go on when it does not: exit.destroyed asks each run's event log for the
+  # destroy on its own, so a run without one cannot pass, and the runs' lines
+  # still show what Back did.
+  runtime=$(runtime_keep)
+  check exit.runtime "the framework's field is on after the reboot: $runtime line(s) of mAlwaysFinishActivities=true, 1 expected" \
+    test "$runtime" = 1
   for ((run = 1; run <= runs; run++)); do
     ash am force-stop "$PKG"
     m=$(mark)
@@ -390,6 +526,8 @@ on_emulator() {
     rpid=$(app_pid)
     pids="$pids $rpid"
     m=$(mark)
+    # Cleared before Back, so the destroy read after it is this run's own.
+    ash logcat -b events -c || die "the event log could not be cleared"
     ash input keyevent KEYCODE_BACK
     suspended=no exit_line='no TAWARA exit line' gone=no
     wait_device "$rpid" '^TAWARA lifecycle: suspended; locking$' 30 >/dev/null && suspended=yes
@@ -398,22 +536,41 @@ on_emulator() {
     # Long enough for a SIGABRT in the exit to be logged after the exit line.
     sleep 10
     [ -z "$(app_pid)" ] && gone=yes
-    [ "$suspended" = yes ] && locked=$((locked + 1))
-    [ "$suspended" = yes ] && [ "$exit_line" = 'TAWARA exit: lock done' ] && finished=$((finished + 1))
-    [ "$gone" = yes ] && ended=$((ended + 1))
-    echo "run $run: pid $rpid; locking logged: $suspended; $exit_line; process ended: $gone"
+    state=no-process
+    [ -n "$rpid" ] && state=$(destroy_state "$rpid" || true)
+    # A process alive now must be the one this run measured: a new PID means the
+    # application started again in this window, so the destroy is not its own.
+    alive=$(app_pid)
+    if [ -n "$alive" ] && [ "$alive" != "$rpid" ]; then state=restarted; fi
+    [ "$state" = destroyed ] && destroyed=$((destroyed + 1))
+    # Only a run whose activity was destroyed counts as an exit measurement.
+    if [ "$state" = destroyed ]; then
+      [ "$suspended" = yes ] && locked=$((locked + 1))
+      [ "$suspended" = yes ] && [ "$exit_line" = 'TAWARA exit: lock done' ] && finished=$((finished + 1))
+      [ "$gone" = yes ] && ended=$((ended + 1))
+    fi
+    echo "run $run: pid $rpid; activity $state; locking logged: $suspended; $exit_line; process ended: $gone"
     echo "$TAG lines after Back with 'Don't keep activities' on:"
     tag_lines "$m"
   done
-  restore_keep
-  check exit.started "$started of $runs relaunched processes started" test "$started" = "$runs"
-  check exit.locks "$locked of $runs runs logged the lock after Back" test "$locked" = "$runs"
-  check exit.ended "$ended of $runs processes ended after Back" test "$ended" = "$runs"
-  check exit.lock "$finished of $runs runs: TAWARA exit: lock done" test "$finished" = "$runs"
+  # Before the reboot that puts the option back, for the same reason as the
+  # first process's check.
   # shellcheck disable=SC2086 # Split on purpose: one argument per pid.
-  aborted=$(aborts "$m0" $pids | tr '\n' ' ' | cut -c1-300)
+  [ -z "$pids" ] || aborted=$(printf '%s\n%s\n' "$aborted" "$(aborts "$mr" $pids)")
+  if ! restore_keep; then
+    echo "::error::'Don't keep activities' could not be put back; the EXIT trap tries again"
+  fi
+  check exit.started "$started of $runs relaunched processes started" test "$started" = "$runs"
+  check exit.destroyed "$destroyed of $runs runs: the event log holds the activity's destroy after Back (always-finish), and the run's process had not died before it" \
+    test "$destroyed" = "$runs"
+  check exit.locks "$locked of $runs runs logged the lock after Back (only destroyed runs count)" test "$locked" = "$runs"
+  check exit.ended "$ended of $runs processes ended after Back (only destroyed runs count)" test "$ended" = "$runs"
+  check exit.lock "$finished of $runs runs: TAWARA exit: lock done (only destroyed runs count)" test "$finished" = "$runs"
+  aborted=$(printf '%s\n' "$aborted" | grep -v '^$' | tr '\n' ' ' | cut -c1-300 || true)
   check exit.no_sigabrt "${aborted:-no SIGABRT or Fatal signal 6 from the application since the first Back}" \
     test -z "$aborted"
+  restored=$(ash settings get global always_finish_activities || true)
+  check exit.restored "'Don't keep activities' reads $restored, as it was ($KEEP_WAS)" test "$restored" = "$KEEP_WAS"
   endgroup
 
   if crashed; then

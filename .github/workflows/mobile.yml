@@ -19,9 +19,9 @@
 # backups on iOS, its window in UIKit's window scene (D32 item 8), and locks
 # on leaving the screen; that the Android manifest carries the backup rules
 # and the iOS bundle the scene manifest; and, on the x86_64 emulator, that
-# the lock is done when the process exits after Back with 'Don't keep
-# activities' on (D32 item 9). It says nothing about a real phone, which the
-# owner checks (D32 item 2).
+# with 'Don't keep activities' on the framework destroys the activity after
+# Back, and the lock is done when the process then exits (D32 item 9). It
+# says nothing about a real phone, which the owner checks (D32 item 2).
 
 name: mobile
 
