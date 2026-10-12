@@ -133,17 +133,20 @@ fn ns_path(path: &Path) -> Retained<NSString> {
     NSString::from_str(&path.to_string_lossy())
 }
 
-/// The pasteboard: iced's clipboard is a stub on iOS
-/// (docs/spikes/P1-REPORT.md).
+/// The pasteboard. iced's clipboard writes the same pasteboard at the pin, but
+/// with no protection, so this write stays Tawara's: the expiring, local-only
+/// item that D32 item 9 (d) asks for belongs here.
 fn copy(text: &str) {
     // SAFETY: plain UIKit calls with valid objects, on the main thread,
     // where iced runs the application's update.
     unsafe { UIPasteboard::generalPasteboard().setString(Some(&NSString::from_str(text))) };
 }
 
-/// `UIApplication`'s notices, on the main queue. winit hears them too, but
-/// iced passes none of them to the application (docs/spikes/P1-REPORT.md,
-/// I6). The observers live as long as the process.
+/// `UIApplication`'s notices, on the main queue. winit hears them too, and two
+/// of them reach iced as `Suspended` and `Resumed` events, which iced passes
+/// on through `on_lifecycle` and `lifecycle()`. Tawara uses neither on iOS (D32
+/// item 9 (d)), so these observers act on the notices. The observers live as
+/// long as the process.
 fn observe(mtm: MainThreadMarker) {
     type Notice = (&'static NSNotificationName, fn(MainThreadMarker));
     // SAFETY: the notification names are UIKit's own constants.

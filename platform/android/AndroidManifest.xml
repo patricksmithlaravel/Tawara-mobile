@@ -11,9 +11,11 @@
      one guard alone.
 
      Back arrives as a key event (enableOnBackInvokedCallback false) and
-     takes the task to the background; the activity is never finished, and
-     handles every configuration change itself, since winit cannot start it
-     again in the same process (docs/spikes/P1-REPORT.md, A18). -->
+     takes the task to the background; the activity is never finished. The
+     configuration changes that configChanges lists are handled by the
+     application (D32 item 9 (i)), so Android does not recreate the activity
+     for them. For any other change the activity is destroyed, which ends the
+     process, and the next launch starts cold (D32 item 9 (d)). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.patricksmithlaravel.tawara">
     <uses-permission android:name="android.permission.INTERNET" />

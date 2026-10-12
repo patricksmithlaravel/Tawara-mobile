@@ -4,9 +4,9 @@
 //! The activity is `android.app.NativeActivity` (platform/android). JNI
 //! reaches the platform's classes through the `Application` that
 //! android-activity registers with `ndk-context`, as phase 1's spike did
-//! (docs/spikes/P1-REPORT.md). What this writes on stderr goes to logcat
-//! under the tag `RustStdoutStderr`, one `TAWARA` line per fact, never a
-//! secret.
+//! (Tawara-wallet's docs/spikes/P1-REPORT.md). What this writes on stderr
+//! goes to logcat under the tag `RustStdoutStderr`, one `TAWARA` line per
+//! fact, never a secret.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -43,16 +43,18 @@ pub fn main(app: AndroidApp) {
     if let Err(error) = tawara_app::run_in(host) {
         eprintln!("TAWARA stop: {error}");
     }
-    // winit allows one event loop per process: a second `android_main` here
-    // could not run one, so the process ends with this one.
+    // The process ends with this one, so the next launch starts cold (D32
+    // item 9 (d)). The fork's winit allows a second event loop once this one
+    // is dropped, but a second `android_main` here would need the Activity's
+    // handles, the host statics and FLAG_SECURE built again, for a rare event.
     std::process::exit(0);
 }
 
 /// `no_backup/`, beside `files/`: the system leaves it out of Auto Backup
 /// and device transfer, and the manifest's rules exclude the rest (D21,
 /// D32 item 7). `files/` itself is mode `0771`, which the library refuses
-/// for a store's parent (docs/spikes/P1-REPORT.md, A19); `no_backup/` is
-/// made `0700` when the system has not made it yet.
+/// for a store's parent (Tawara-wallet's docs/spikes/P1-REPORT.md, A19);
+/// `no_backup/` is made `0700` when the system has not made it yet.
 fn private_dir(app: &AndroidApp) -> Option<PathBuf> {
     let files = app.internal_data_path()?;
     let dir = files.parent()?.join("no_backup");
@@ -90,7 +92,8 @@ fn copy(text: &str) {
 
 /// Back: move the task to the background, as Android 12 and later do
 /// themselves for a launcher's first activity, keeping the activity and
-/// winit's event loop (docs/spikes/P1-REPORT.md, A14 and A18).
+/// winit's event loop (Tawara-wallet's docs/spikes/P1-REPORT.md, A14 and
+/// A18).
 fn back() {
     let Some(app) = APP.get() else {
         return;
