@@ -244,6 +244,20 @@ reason = "mesh-https is defined as rustls; a platform TLS stack in C would move 
 crate = "openssl-sys"
 reason = "mesh-https is defined as rustls; OpenSSL would put a second, C, TLS stack in the graph"
 
+# WINIT HAS ONE DIRECT USER, as in Tawara-wallet's file. winit comes from the
+# owner's fork, and `iced_winit` is the only crate in this graph that depends
+# on it directly. Every iced crate comes from one commit so that the build
+# holds one copy of each (Tawara-wallet's docs/DECISIONS.md D32, items 1 and
+# 9), and a crate that named winit itself, or brought in a second copy, would
+# break that: on iOS two copies register the same Objective-C classes, and
+# objc2 panics on the duplicate name (D32 item 9 (b)). The `wrappers` list
+# admits `iced_winit` alone, so a new direct dependency on winit fails, as the
+# policy test (crates/mobile/tests/policy.rs) also checks.
+[[bans.deny]]
+crate = "winit"
+wrappers = ["iced_winit"]
+reason = "winit is the fork's copy and is reached only through iced_winit; a direct dependency or a second copy breaks the one-copy rule (Tawara-wallet's docs/DECISIONS.md D32, items 1 and 9)"
+
 # THE LIBRARY'S TEST-ONLY FEATURE. `raw-backend` makes the primitive layer,
 # including the raw WOTS+ signer, nameable from outside the library; with it
 # off, the only path to a signature is `Keystore::sign_spend` behind an
