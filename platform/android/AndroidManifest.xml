@@ -27,21 +27,27 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
-        <!-- configChanges names the eighteen configuration changes that API
-             35 defines (docs/DECISIONS.md D32 item 9). The activity handles
-             each of them itself, so Android does not destroy and recreate it
-             for one. Android does that for any change left out of the list,
-             and a destroyed activity ends the application: Tawara ends the
-             process after Destroy, so the wallet's state goes with it, and the
-             next launch starts cold (D32 item 9 (d)). API 36 adds assetsPaths
-             and resourcesUnused, which a device on that API can report; the
-             list names both when the target moves to 36. -->
+        <!-- configChanges names the nineteen configuration changes this
+             activity handles itself (docs/DECISIONS.md D32 item 9): the
+             eighteen that API 35 defines, and assetsPaths, which API 36
+             defines. Android destroys and recreates the activity for any
+             change left out of the list, and a destroyed activity ends the
+             application here: the fork's winit ends its event loop on
+             Destroy, Tawara ends the process after it, and the next launch
+             starts cold (D32 item 9 (d)). An asset-path change needs no
+             action from the user. The navigation mode's overlay makes one,
+             and so does the update the system applies to each application
+             after an install, so an activity that does not declare
+             assetsPaths is relaunched for it, and so ends. That is why the
+             name is declared now and not when the target moves to 36.
+             resourcesUnused is also from API 36, and waits for that move
+             (D32 item 9 (i)). -->
         <activity
             android:name="android.app.NativeActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize|stateHidden"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|touchscreen|colorMode|mcc|mnc|grammaticalGender">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|touchscreen|colorMode|mcc|mnc|grammaticalGender|assetsPaths">
             <meta-data android:name="android.app.lib_name" android:value="tawara_mobile" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
