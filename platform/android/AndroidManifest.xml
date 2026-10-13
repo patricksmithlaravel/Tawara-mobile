@@ -12,8 +12,9 @@
 
      Back arrives as a key event (enableOnBackInvokedCallback false) and
      takes the task to the background; the activity is never finished, and
-     handles every configuration change itself, since winit cannot start it
-     again in the same process (docs/spikes/P1-REPORT.md, A18). -->
+     itself handles each configuration change that configChanges names
+     (docs/DECISIONS.md D32 item 9), since winit cannot start it again in the
+     same process (docs/spikes/P1-REPORT.md, A18). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.patricksmithlaravel.tawara">
     <uses-permission android:name="android.permission.INTERNET" />
@@ -25,12 +26,21 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
+        <!-- configChanges names the eighteen configuration changes that API
+             35 defines (docs/DECISIONS.md D32 item 9). The activity handles
+             each of them itself, so Android does not destroy and recreate it
+             for one. Android does that for any change left out of the list,
+             and a destroyed activity ends the application: winit cannot
+             start it again in the same process, so the process ends and the
+             wallet's state with it (A18). API 36 adds assetsPaths and
+             resourcesUnused, which a device on that API can report; the list
+             names both when the target moves to 36. -->
         <activity
             android:name="android.app.NativeActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize|stateHidden"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|touchscreen|colorMode">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|touchscreen|colorMode|mcc|mnc|grammaticalGender">
             <meta-data android:name="android.app.lib_name" android:value="tawara_mobile" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

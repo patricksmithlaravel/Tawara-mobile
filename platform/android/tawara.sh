@@ -258,6 +258,18 @@ on_emulator() {
     grep -qE 'allowBackup\(0x[0-9a-f]+\)=(false|\(type 0x12\)0x0)' "$OUT/manifest.txt"
   check manifest.dataExtractionRules "android:dataExtractionRules names the rules" \
     grep -q 'android:dataExtractionRules' "$OUT/manifest.txt"
+  # The activity handles every configuration change this mask names (D32
+  # item 9), so the mask must hold the eighteen names of API 35. A name left
+  # out lets Android recreate the activity, which ends the application. The
+  # detail shows each mask aapt2 read, to compare bit by bit with 0x5000ffff.
+  # They are joined on one line, so a second element with a mask of its own
+  # fails the check rather than hide behind the first.
+  local changes
+  changes=$(awk 'match($0, /configChanges\(0x[0-9a-f]+\)=.*/) {
+    s = s (s == "" ? "" : "; ") substr($0, RSTART)
+  } END { print (s == "" ? "no configChanges" : s) }' "$OUT/manifest.txt")
+  check manifest.configChanges "want 0x5000ffff (18 names): $changes" \
+    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0x5000ffff$' <<<"$changes"
   endgroup
 
   group "install and start"
@@ -281,11 +293,14 @@ on_emulator() {
   endgroup
 
   group "the store's directory"
-  # Not readable by other apps' users. The library makes the store's own
-  # folder 0700 inside it when a store is written (D21).
+  # no_backup/ is the store's parent (D21). android.rs makes it mode 0700,
+  # since the library refuses a parent as open as files/, which is 0771
+  # (docs/spikes/P1-REPORT.md, A19). The mode must be exactly that: testing
+  # only the others' bits would pass 0771 or 0750, which let the group in.
+  # toybox's ls prints the mode and then a space.
   local listing
   listing=$(ash run-as "$PKG" ls -ld no_backup 2>&1 || true)
-  check no_backup.private "$listing" grep -qE '^d.{6}-' <<<"$listing"
+  check no_backup.private "$listing" grep -qE '^drwx------ ' <<<"$listing"
   endgroup
 
   group "Home: suspended and locked, then back"

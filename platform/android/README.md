@@ -5,10 +5,10 @@ Tawara on Android is `crates/mobile` loaded as `libtawara_mobile.so` by
 D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
 
 - `AndroidManifest.xml`: NativeActivity, `hasCode="false"`, uncompressed
-  16 KB-aligned native libraries, `INTERNET`, every configuration change
-  handled in place and Back delivered as a key (phase 1, A18), and the
-  backup rules: `android:allowBackup="false"` and `dataExtractionRules`
-  (docs/PLAN.md section 4.5).
+  16 KB-aligned native libraries, `INTERNET`, the eighteen configuration
+  changes of API 35 handled in place (D32 item 9), Back delivered as a key
+  (phase 1, A18), and the backup rules: `android:allowBackup="false"` and
+  `dataExtractionRules` (docs/PLAN.md section 4.5).
 - `res/xml/data_extraction_rules.xml`: every domain excluded from cloud
   backup and from device transfer. The store lives in `no_backup/` besides
   (D21).
