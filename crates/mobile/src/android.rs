@@ -112,7 +112,11 @@ fn log_exit(state: &str) {
     }
 }
 
-/// Puts `text` on the clipboard through `ClipboardManager`.
+/// Puts `text` on the clipboard through `ClipboardManager`, marked sensitive
+/// (docs/DECISIONS.md D32 item 9 (d) and item 10). From Android
+/// 13 the system does not show a sensitive copy in its clipboard preview, and
+/// earlier versions ignore the mark. A destination or a signed spend is not
+/// secret, but a copy should not put it on the screen uninvited.
 fn copy(text: &str) {
     if let Err(error) = clipboard_write(text) {
         eprintln!("TAWARA clipboard: {error:?}");
@@ -182,6 +186,42 @@ fn clipboard_write(text: &str) -> jni::errors::Result<()> {
                 &[JValue::Object(&label), JValue::Object(&value)],
             )?
             .l()?;
+        // The mark goes on the clip's own description, which the manager
+        // copies along with the clip, so it is set before setPrimaryClip.
+        // setExtras is API 24 and the minimum here is 26. The key is
+        // ClipDescription.EXTRA_IS_SENSITIVE, written out because reading
+        // that field fails below API 33, and earlier versions ignore the key
+        // (docs/DECISIONS.md D32 item 10). `with_context` catches any
+        // exception these calls throw, so none is left pending. A failure
+        // anywhere here returns before setPrimaryClip and leaves the
+        // clipboard as it was, on purpose: every copy is meant to carry the
+        // mark, so none goes on the clipboard without it.
+        let description = env
+            .call_method(
+                &clip,
+                jni_str!("getDescription"),
+                jni_sig!(() -> android.content.ClipDescription),
+                &[],
+            )?
+            .l()?;
+        let extras = env.new_object(
+            jni_str!("android/os/PersistableBundle"),
+            jni_sig!(() -> void),
+            &[],
+        )?;
+        let key = env.new_string("android.content.extra.IS_SENSITIVE")?;
+        env.call_method(
+            &extras,
+            jni_str!("putBoolean"),
+            jni_sig!((java.lang.String, jboolean) -> void),
+            &[JValue::Object(&key), JValue::Bool(true)],
+        )?;
+        env.call_method(
+            &description,
+            jni_str!("setExtras"),
+            jni_sig!((android.os.PersistableBundle) -> void),
+            &[JValue::Object(&extras)],
+        )?;
         env.call_method(
             &manager,
             jni_str!("setPrimaryClip"),
