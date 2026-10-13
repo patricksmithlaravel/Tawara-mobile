@@ -208,8 +208,8 @@ fn pasteboard_options() -> Retained<NSDictionary<NSString, AnyObject>> {
 /// item 10 (i)). `name` is not shown: UIKit's sheet takes the text itself, and
 /// a subject would need an item provider that the shell does not write (D4).
 /// The application cannot learn what was done with the sheet. `Ok` says that
-/// UIKit was asked to present it, which is less than D32 item 10 (i) asks
-/// for; [`present_share`] says why.
+/// UIKit was asked to present it, not that it was shown: the owner decided
+/// that on 2026-10-13 (D32 item 10 (i)), and [`present_share`] says why.
 fn share(_name: &str, text: &str) -> Result<(), String> {
     let result = present_share(text);
     match &result {
@@ -235,13 +235,11 @@ fn share(_name: &str, text: &str) -> Result<(), String> {
 /// So the refusals that can be known are checked first, and that second
 /// sheet, which Save artifact pressed twice would ask for, is refused here
 /// rather than by UIKit, so that the wallet hears of it. A refusal UIKit makes
-/// after this returns is not reported: `Ok` then means only that UIKit was
-/// asked, and the wallet says that the sheet was opened when it was not. D32
-/// item 10 (i) asks that `Ok` mean the sheet was shown; which of the two to
-/// change, the decision's wording or `Host::share`'s answer, is the owner's
-/// (Tawara-mobile#8). Such a refusal is logged as "never shown" at the next
-/// press after `OPENING_LIMIT`. The presentation's completion clears the
-/// opening state and logs that the sheet was shown.
+/// after this returns is not reported. The owner decided on 2026-10-13 that
+/// `Ok` means the platform was asked to show the sheet, not that it was shown
+/// (D32 item 10 (i); Tawara-mobile#8). Such a refusal is logged as "never
+/// shown" at the next press after `OPENING_LIMIT`. The presentation's
+/// completion clears the opening state and logs that the sheet was shown.
 fn present_share(text: &str) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
     if let Some((_, asked)) = OPENING.get() {

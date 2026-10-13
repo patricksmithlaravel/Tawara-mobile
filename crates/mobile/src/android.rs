@@ -90,8 +90,10 @@ fn lifecycle(event: iced_winit::Lifecycle) {
 /// Puts `text` on the clipboard through `ClipboardManager`, marked sensitive
 /// (docs/DECISIONS.md D32 item 9 (d) and item 10). From Android
 /// 13 the system does not show a sensitive copy in its clipboard preview, and
-/// earlier versions ignore the mark. A destination or a signed spend is not
-/// secret, but a copy should not put it on the screen uninvited.
+/// earlier versions ignore the mark. A destination is not secret, but a copy
+/// should not put it on the screen uninvited. A signed spend is held to that
+/// same rule because these are the only bytes that can move these funds while
+/// the reservation is open.
 fn copy(text: &str) {
     if let Err(error) = clipboard_write(text) {
         eprintln!("TAWARA clipboard: {error:?}");
@@ -111,12 +113,12 @@ fn copy(text: &str) {
 /// clipboard without the sensitive mark that D32 item 10 (j) asks of every
 /// copy and that `copy` sets. Tawara sets no option that removes the preview
 /// or the button, and knows of none short of sharing a file through a
-/// `FileProvider`, which D4 rules out. Whether to accept both for the sheet's
-/// lifetime, or to have no sheet on Android, is the owner's decision
+/// `FileProvider`, which D4 rules out. The owner decided on 2026-10-13 to
+/// accept both for the sheet's lifetime, as an exception to D32 item 10 (i)
 /// (Tawara-mobile#8). The sheet opens only when Save artifact is pressed, to
-/// hand these same bytes to another app. On that emulator the chooser was
-/// translucent: Tawara's window stayed, and the wallet did not lock while the
-/// chooser was up.
+/// hand these same bytes to another app, and Tawara's own copy, which is
+/// marked, remains. On that emulator the chooser was translucent: Tawara's
+/// window stayed, and the wallet did not lock while the chooser was up.
 fn share(name: &str, text: &str) -> Result<(), String> {
     // `main` sets APP before `run_in`, and the application reaches this only
     // through `run_in`, so the activity is always known here. The `else` is
