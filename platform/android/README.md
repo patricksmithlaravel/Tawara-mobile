@@ -18,9 +18,10 @@ D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
   checks CI runs, `.github/workflows/mobile.yml`).
 
 What the Rust side does (`crates/mobile/src/android.rs`): `FLAG_SECURE` on
-the whole window (D32 item 4), the store in `no_backup/`, the clipboard, the
-share sheet (an `ACTION_SEND` chooser) and Back through JNI, and the lock when
-the system suspends the application.
+the whole window (D32 item 4), the store in `no_backup/`, the clipboard
+through JNI with every copy marked sensitive (D32 item 10), the share sheet (an
+`ACTION_SEND` chooser) and Back through JNI, and the lock when the system
+suspends the application.
 
 To try a build on a phone: take `tawara.apk` from a local
 `platform/android/tawara.sh build && platform/android/tawara.sh apk` (with

@@ -33,7 +33,8 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `Host::share`, which the shells supply for Save artifact's share sheet (D32
 # item 10 (i)). It is pinned here until the wallet's pull requests merge; then
 # the pin moves to the merge commit on Tawara-wallet's `main`, as D32 item 9
-# (c) asks.
+# (c) asks. It replaces the pin at 9cfeefa, Tawara-wallet pull request #18's
+# merge commit on `main`, which contains f095432, the pin before that.
 tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "4ce25505657b7f420c737e98b094b92f0469c2f2" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
@@ -62,6 +63,7 @@ objc2 = "0.5.2"
 block2 = "0.5.1"
 objc2-foundation = { version = "0.2.2", features = [
     "NSArray",
+    "NSDate",
     "NSDictionary",
     "NSError",
     "NSFileManager",
