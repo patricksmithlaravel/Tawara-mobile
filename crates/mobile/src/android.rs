@@ -1,5 +1,6 @@
-//! Android: the window's flags, the store's directory, the clipboard, Back
-//! and the lock, with no Java code (docs/DECISIONS.md D4, D32).
+//! Android: the window's flags, the store's directory, the clipboard, the
+//! share sheet, Back and the lock, with no Java code (docs/DECISIONS.md D4,
+//! D32).
 //!
 //! The activity is `android.app.NativeActivity` (platform/android). JNI
 //! reaches the platform's classes through the `Application` that
@@ -38,6 +39,7 @@ pub fn main(app: AndroidApp) {
     let host = Host {
         private_dir,
         copy,
+        share,
         back,
     };
     if let Err(error) = tawara_app::run_in(host) {
@@ -88,6 +90,103 @@ fn copy(text: &str) {
     if let Err(error) = clipboard_write(text) {
         eprintln!("TAWARA clipboard: {error:?}");
     }
+}
+
+/// Offers `text` to the system's share sheet through `Intent.createChooser`,
+/// with `name` as the subject and the chooser's title (docs/DECISIONS.md D32
+/// item 10 (i)). `Ok` says only that the chooser was started: the application
+/// cannot learn what was done with it.
+fn share(name: &str, text: &str) -> Result<(), String> {
+    let result = match APP.get() {
+        Some(app) => share_text(app, name, text).map_err(|error| error.to_string()),
+        None => Err("the activity is not known yet".to_owned()),
+    };
+    match &result {
+        Ok(()) => eprintln!("TAWARA share: chooser shown"),
+        Err(error) => eprintln!("TAWARA share: {error}"),
+    }
+    result
+}
+
+/// The chooser for `text`, started on the activity. The text travels in an
+/// extra, so no file is written and no FileProvider is needed (D4). A Java
+/// exception left pending is described for logcat and cleared here, because
+/// the application shows the error this returns, and that must stay one line.
+fn share_text(app: &AndroidApp, name: &str, text: &str) -> jni::errors::Result<()> {
+    // SAFETY: both pointers stay valid while `app` is alive (android-activity
+    // documents `vm_as_ptr` and `activity_as_ptr` this way).
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
+    let activity = app.activity_as_ptr() as jni::sys::jobject;
+    vm.attach_current_thread(|env| {
+        // SAFETY: the activity's own reference, alive while `app` is.
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity)? };
+        let result = start_chooser(env, &activity, name, text);
+        if result.is_err() && env.exception_check() {
+            env.exception_describe();
+            env.exception_clear();
+        }
+        result
+    })
+}
+
+/// `ACTION_SEND` as `text/plain`, through `Intent.createChooser`, started on
+/// `activity`.
+fn start_chooser(
+    env: &mut jni::Env,
+    activity: &JObject,
+    name: &str,
+    text: &str,
+) -> jni::errors::Result<()> {
+    let action = env.new_string("android.intent.action.SEND")?;
+    let mime = env.new_string("text/plain")?;
+    let extra_text = env.new_string("android.intent.extra.TEXT")?;
+    let extra_subject = env.new_string("android.intent.extra.SUBJECT")?;
+    let value = env.new_string(text)?;
+    let subject = env.new_string(name)?;
+    let intent = env.new_object(
+        jni_str!("android/content/Intent"),
+        jni_sig!(() -> void),
+        &[],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("setAction"),
+        jni_sig!((java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&action)],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("setType"),
+        jni_sig!((java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&mime)],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("putExtra"),
+        jni_sig!((java.lang.String, java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&extra_text), JValue::Object(&value)],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("putExtra"),
+        jni_sig!((java.lang.String, java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&extra_subject), JValue::Object(&subject)],
+    )?;
+    let chooser = env
+        .call_static_method(
+            jni_str!("android/content/Intent"),
+            jni_str!("createChooser"),
+            jni_sig!((android.content.Intent, java.lang.CharSequence) -> android.content.Intent),
+            &[JValue::Object(&intent), JValue::Object(&subject)],
+        )?
+        .l()?;
+    env.call_method(
+        activity,
+        jni_str!("startActivity"),
+        jni_sig!((android.content.Intent) -> void),
+        &[JValue::Object(&chooser)],
+    )?;
+    Ok(())
 }
 
 /// Back: move the task to the background, as Android 12 and later do

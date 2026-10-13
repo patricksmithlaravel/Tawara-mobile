@@ -1,6 +1,6 @@
 //! iOS: the store's directory, its protection and backup exclusion, the
-//! pasteboard, the app-switcher cover and the lock, through the
-//! Objective-C runtime with no Swift or Objective-C source
+//! pasteboard, the share sheet, the app-switcher cover and the lock, through
+//! the Objective-C runtime with no Swift or Objective-C source
 //! (docs/DECISIONS.md D4, D32).
 //!
 //! Everything here runs on the main thread: [`main`] before winit's
@@ -18,12 +18,12 @@ use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_foundation::{
-    MainThreadMarker, NSCopying, NSDictionary, NSFileManager, NSFileProtectionComplete,
+    MainThreadMarker, NSArray, NSCopying, NSDictionary, NSFileManager, NSFileProtectionComplete,
     NSFileProtectionKey, NSHomeDirectory, NSNotification, NSNotificationCenter, NSNotificationName,
     NSNumber, NSOperationQueue, NSString, NSURL, NSURLIsExcludedFromBackupKey,
 };
 use objc2_ui_kit::{
-    UIApplication, UIApplicationDidBecomeActiveNotification,
+    UIActivityViewController, UIApplication, UIApplicationDidBecomeActiveNotification,
     UIApplicationDidEnterBackgroundNotification, UIApplicationWillResignActiveNotification,
     UIBackgroundTaskInvalid, UIColor, UIPasteboard, UIView, UIViewAutoresizing,
 };
@@ -50,6 +50,7 @@ pub fn main() {
     let host = Host {
         private_dir,
         copy,
+        share,
         back: || {},
     };
     if let Err(error) = tawara_app::run_in(host) {
@@ -140,6 +141,53 @@ fn copy(text: &str) {
     // SAFETY: plain UIKit calls with valid objects, on the main thread,
     // where iced runs the application's update.
     unsafe { UIPasteboard::generalPasteboard().setString(Some(&NSString::from_str(text))) };
+}
+
+/// The share sheet, through `UIActivityViewController` (docs/DECISIONS.md D32
+/// item 10 (i)). `name` is not shown: UIKit's sheet takes the text itself, and
+/// a subject would need an item provider that the shell does not write (D4).
+/// `Ok` says only that the sheet was presented; the application cannot learn
+/// what was done with it.
+fn share(_name: &str, text: &str) -> Result<(), String> {
+    let result = present_share(text);
+    match &result {
+        Ok(()) => eprintln!("TAWARA share: sheet shown"),
+        Err(error) => eprintln!("TAWARA share: {error}"),
+    }
+    result
+}
+
+/// Presents the sheet from the top of the key window's controllers, the same
+/// window `cover` covers. The app is iPhone only (UIDeviceFamily 1), so there
+/// is no popover to anchor the sheet to.
+fn present_share(text: &str) -> Result<(), String> {
+    let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
+    // SAFETY: UIKit calls on the main thread with valid objects. The items are
+    // made here; the window and its controllers are UIKit's own, read on the
+    // main thread, and the sheet is presented on the top one, as a modal sheet
+    // is.
+    unsafe {
+        let item: Retained<AnyObject> =
+            Retained::into_super(Retained::into_super(NSString::from_str(text)));
+        let items = NSArray::from_vec(vec![item]);
+        let sheet = UIActivityViewController::initWithActivityItems_applicationActivities(
+            mtm.alloc(),
+            &items,
+            None,
+        );
+        #[allow(deprecated)]
+        let window = UIApplication::sharedApplication(mtm)
+            .keyWindow()
+            .ok_or("no key window")?;
+        let mut top = window
+            .rootViewController()
+            .ok_or("no root view controller")?;
+        while let Some(presented) = top.presentedViewController() {
+            top = presented;
+        }
+        top.presentViewController_animated_completion(&sheet, true, None);
+    }
+    Ok(())
 }
 
 /// `UIApplication`'s notices, on the main queue. winit hears them too, and two

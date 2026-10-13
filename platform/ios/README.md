@@ -17,7 +17,8 @@ What the Rust side does (`crates/mobile/src/ios.rs`): the store under
 `Library/Application Support/Tawara`, made mode `0700`, protected with
 `NSFileProtectionComplete` (D32 item 3) and excluded from iCloud and device
 backups with `NSURLIsExcludedFromBackupKey` (docs/PLAN.md section 4.5); the
-pasteboard; a cover over the window whenever the application is not active,
+pasteboard; the share sheet, a `UIActivityViewController` on the top
+controller; a cover over the window whenever the application is not active,
 so the app switcher's snapshot shows nothing (section 4.3); the lock
 when it enters the background. Putting winit's window in the window scene
 UIKit connects is the iced fork's, since winit 0.30 has no scene support of
