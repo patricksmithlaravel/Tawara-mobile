@@ -18,14 +18,16 @@ use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_foundation::{
-    MainThreadMarker, NSCopying, NSDictionary, NSFileManager, NSFileProtectionComplete,
-    NSFileProtectionKey, NSHomeDirectory, NSNotification, NSNotificationCenter, NSNotificationName,
-    NSNumber, NSOperationQueue, NSString, NSURL, NSURLIsExcludedFromBackupKey,
+    MainThreadMarker, NSArray, NSCopying, NSDate, NSDictionary, NSFileManager,
+    NSFileProtectionComplete, NSFileProtectionKey, NSHomeDirectory, NSNotification,
+    NSNotificationCenter, NSNotificationName, NSNumber, NSOperationQueue, NSString, NSURL,
+    NSURLIsExcludedFromBackupKey,
 };
 use objc2_ui_kit::{
     UIApplication, UIApplicationDidBecomeActiveNotification,
     UIApplicationDidEnterBackgroundNotification, UIApplicationWillResignActiveNotification,
-    UIBackgroundTaskInvalid, UIColor, UIPasteboard, UIView, UIViewAutoresizing,
+    UIBackgroundTaskInvalid, UIColor, UIPasteboard, UIPasteboardOptionExpirationDate,
+    UIPasteboardOptionLocalOnly, UIView, UIViewAutoresizing,
 };
 use tawara_app::Host;
 
@@ -133,12 +135,59 @@ fn ns_path(path: &Path) -> Retained<NSString> {
     NSString::from_str(&path.to_string_lossy())
 }
 
+/// How long a copy stays on the pasteboard (docs/DECISIONS.md D32 item 10):
+/// long enough to paste it into another application, short enough that a
+/// copied destination or transaction does not linger.
+const PASTEBOARD_LIFETIME: Duration = Duration::from_secs(120);
+
 /// The pasteboard: iced's clipboard is a stub on iOS
-/// (docs/spikes/P1-REPORT.md).
+/// (docs/spikes/P1-REPORT.md). A copy is local to this device, so it does not
+/// reach the person's other devices, and it expires after
+/// `PASTEBOARD_LIFETIME`, so it does not stay on the pasteboard. A destination
+/// or a signed spend is not secret, but it should not linger or sync
+/// (docs/DECISIONS.md D32 item 9 (d) and item 10).
 fn copy(text: &str) {
-    // SAFETY: plain UIKit calls with valid objects, on the main thread,
-    // where iced runs the application's update.
-    unsafe { UIPasteboard::generalPasteboard().setString(Some(&NSString::from_str(text))) };
+    // The uniform type identifier of plain UTF-8 text.
+    const TEXT: &str = "public.utf8-plain-text";
+    let options = pasteboard_options();
+    // SAFETY: Foundation and UIKit calls with valid objects, on the main
+    // thread, where iced runs the application's update.
+    unsafe {
+        let kind = NSString::from_str(TEXT);
+        let string = Retained::into_super(Retained::into_super(NSString::from_str(text)));
+        let item = NSDictionary::from_vec(&[&*kind], vec![string]);
+        let items = NSArray::from_vec(vec![item]);
+        UIPasteboard::generalPasteboard().setItems_options(&items, &options);
+    }
+    eprintln!(
+        "TAWARA clipboard: local only, expiring after {} s",
+        PASTEBOARD_LIFETIME.as_secs()
+    );
+}
+
+/// The options every copy carries: local to this device, and expiring
+/// `PASTEBOARD_LIFETIME` from now (docs/DECISIONS.md D32 item 10). They are
+/// built here, apart from the copy, so that the test below can read them: the
+/// simulator can observe the expiry but not the local-only option, since it
+/// has no Universal Clipboard.
+fn pasteboard_options() -> Retained<NSDictionary<NSString, AnyObject>> {
+    // SAFETY: Foundation constructors, and UIKit's own option keys, which are
+    // immutable constants.
+    unsafe {
+        let local_only = Retained::into_super(Retained::into_super(Retained::into_super(
+            NSNumber::new_bool(true),
+        )));
+        let expires = Retained::into_super(Retained::into_super(
+            NSDate::dateWithTimeIntervalSinceNow(PASTEBOARD_LIFETIME.as_secs_f64()),
+        ));
+        NSDictionary::from_vec(
+            &[
+                UIPasteboardOptionLocalOnly,
+                UIPasteboardOptionExpirationDate,
+            ],
+            vec![local_only, expires],
+        )
+    }
 }
 
 /// `UIApplication`'s notices, on the main queue. winit hears them too, but
@@ -339,4 +388,51 @@ impl Task {
 fn background() -> [f64; 3] {
     let c = tawara_app::theme::color::BG_APP;
     [f64::from(c.r), f64::from(c.g), f64::from(c.b)]
+}
+
+#[cfg(test)]
+mod tests {
+    use objc2::{ClassType, msg_send};
+
+    use super::*;
+
+    /// The copy, run on the simulator by platform/ios/tawara.sh, which reads
+    /// the pasteboard from outside with `simctl pbpaste` while the copy waits
+    /// and again once its lifetime has passed (docs/DECISIONS.md D32 item 10).
+    /// The local-only option cannot be observed there, so the test first
+    /// asserts that the options hold exactly the two keys, local-only set to
+    /// YES and an expiry about `PASTEBOARD_LIFETIME` away. The test does not
+    /// read the pasteboard itself: from this process a read did not return
+    /// the copy, so the observation is made from outside. The test waits out
+    /// the lifetime, so it takes over two minutes. `--test-threads=1` keeps
+    /// it on the main thread, where the copy's calls belong.
+    #[test]
+    fn a_copy_for_the_simulator_check() {
+        let options = pasteboard_options();
+        assert_eq!(options.count(), 2, "only the two options");
+        // SAFETY: each value is checked to be of its class before a message
+        // of that class is sent to it; the keys are UIKit's own constants.
+        unsafe {
+            let local_only = options
+                .get(UIPasteboardOptionLocalOnly)
+                .expect("the local-only option");
+            let is_number: bool = msg_send![local_only, isKindOfClass: NSNumber::class()];
+            assert!(is_number, "local-only is an NSNumber");
+            let on: bool = msg_send![local_only, boolValue];
+            assert!(on, "local-only is YES");
+            let expires = options
+                .get(UIPasteboardOptionExpirationDate)
+                .expect("the expiry option");
+            let is_date: bool = msg_send![expires, isKindOfClass: NSDate::class()];
+            assert!(is_date, "the expiry is an NSDate");
+            let left: f64 = msg_send![expires, timeIntervalSinceNow];
+            assert!(
+                (110.0..=120.0).contains(&left),
+                "the expiry is {left} s away"
+            );
+        }
+        copy("tawara-copy-check");
+        println!("TAWARA clipboard check: copied");
+        std::thread::sleep(PASTEBOARD_LIFETIME + Duration::from_secs(1));
+    }
 }

@@ -17,10 +17,13 @@
 # iPhone simulator the application starts in its private directory, with
 # FLAG_SECURE on Android and the store's folder protected and excluded from
 # backups on iOS, its window in UIKit's window scene (D32 item 8), and locks
-# on leaving the screen; and that the Android manifest carries the backup
-# rules and the eighteen configuration changes of API 35 (D32 item 9), and
-# the iOS bundle the scene manifest. It says nothing about a real phone,
-# which the owner checks (D32 item 2).
+# on leaving the screen; that a copy is set local-only and expiring, as a
+# test asserts, and is gone from the simulator's pasteboard once its lifetime
+# has passed (D32 item 10); and that the Android manifest carries the backup
+# rules and the eighteen configuration changes of API 35 (D32 item 9), and the
+# iOS bundle the scene manifest. Nothing here checks the Android copy's
+# sensitive mark, since no emulator check makes a copy. It says nothing about
+# a real phone, which the owner checks (D32 item 2).
 
 name: mobile
 

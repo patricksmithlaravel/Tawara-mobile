@@ -26,6 +26,9 @@ OUT=${RUNNER_TEMP:-/tmp}/tawara-ios
 export IPHONEOS_DEPLOYMENT_TARGET=${IPHONEOS_DEPLOYMENT_TARGET:-16.0}
 mkdir -p "$OUT/shots"
 : >"$OUT/results.tsv"
+# The application's stderr, read from its first line: a run that found an
+# earlier run's `TAWARA` lines there would judge them as its own.
+: >"$OUT/app.err"
 
 group() { echo "::group::$*"; }
 endgroup() { echo "::endgroup::"; }
@@ -194,6 +197,53 @@ PY
   check return.same_process "pid $pid, then $pid2" test "$pid" = "$pid2"
   sleep 5
   shot 03-returned
+  endgroup
+
+  group "the copy path: options asserted, expiry observed (D32 item 10)"
+  # Nothing in the application can copy without a person's taps, so the copy
+  # is made by the test in crates/mobile/src/ios.rs, built for this simulator
+  # and run on it. The test asserts the options, local-only among them, which
+  # a simulator cannot observe. The pasteboard is read from outside with
+  # `simctl pbpaste` while the copy waits, and again once its lifetime has
+  # passed.
+  local test_exe clip=$OUT/clipboard.out clip_pid copied pasted after status=0 t=0
+  test_exe=$(cd "$ROOT" && cargo test --release --locked -p tawara-mobile --lib \
+    --target aarch64-apple-ios-sim --no-run --message-format=json | python3 -c '
+import json, sys
+for line in sys.stdin:
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") == "compiler-artifact" and m["profile"]["test"] and m["target"]["kind"] == ["lib"]:
+        print(m["executable"])
+')
+  codesign --force --sign - --timestamp=none "$test_exe"
+  xcrun simctl spawn "$UDID" "$test_exe" --exact ios::tests::a_copy_for_the_simulator_check \
+    --nocapture --test-threads=1 >"$clip" 2>&1 &
+  clip_pid=$!
+  copied=$(wait_after "$clip" 0 '^TAWARA clipboard check: copied$' 120 || true)
+  pasted=$(xcrun simctl pbpaste "$UDID" 2>/dev/null || true)
+  check clipboard.copied "${copied:-no copy line}" test -n "$copied"
+  check clipboard.on_pasteboard "pasteboard: '$pasted'" test "$pasted" = tawara-copy-check
+  # The test ends a second after the lifetime; one that hangs is ended here,
+  # so the job does not wait for its own timeout and the kill fails
+  # clipboard.test.
+  while kill -0 "$clip_pid" 2>/dev/null && [ "$t" -lt 200 ]; do
+    sleep 1
+    t=$((t + 1))
+  done
+  kill "$clip_pid" 2>/dev/null || true
+  wait "$clip_pid" || status=$?
+  check clipboard.test "test exit $status" test "$status" = 0
+  # The test's assertions on the options are part of this result.
+  check clipboard.ran "$(grep -o 'test result: .*' "$clip" | head -1)" grep -q 'test result: ok. 1 passed' "$clip"
+  # A failed read must not pass for an empty pasteboard.
+  if after=$(xcrun simctl pbpaste "$UDID" 2>/dev/null); then
+    check clipboard.expired "pasteboard after its lifetime: '$after'" test -z "$after"
+  else
+    record clipboard.expired FAIL "simctl pbpaste failed"
+  fi
   endgroup
 
   check no_panic "no panic on stderr" bash -c "! grep -q 'panicked' '$err'"
