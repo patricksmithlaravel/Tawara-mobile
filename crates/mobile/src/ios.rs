@@ -244,7 +244,10 @@ fn present_share(text: &str) -> Result<(), String> {
 /// across all of an application's connected scenes; Tawara has one scene
 /// (`UIApplicationSupportsMultipleScenes` is false in platform/ios's
 /// Info.plist.in) and is iPhone only (UIDeviceFamily 1), so there is only one
-/// window it could pick.
+/// window it could pick. `UIWindowScene`'s `keyWindow` was considered in its
+/// place (D32 item 9), but it would first need the scene found among
+/// `connectedScenes`, which adds code for a choice this application does not
+/// have.
 fn key_window(mtm: MainThreadMarker) -> Option<Retained<UIWindow>> {
     // SAFETY: a UIKit call on the main thread.
     #[allow(deprecated)]
@@ -296,9 +299,13 @@ fn observe(mtm: MainThreadMarker) {
 /// The application is about to stop being active (the app switcher, a
 /// call, Control Center): cover the window, so the snapshot iOS takes for
 /// the app switcher shows nothing of the wallet (docs/PLAN.md section 4.3).
+/// The line logged here says whether a cover was added, and the simulator
+/// check in platform/ios/tawara.sh reads it, so a missing key window must
+/// not pass for a cover (D32 item 9).
 fn cover(mtm: MainThreadMarker) {
     COVER.with_borrow_mut(|cover| {
         if cover.is_some() {
+            eprintln!("TAWARA lifecycle: inactive; already covered");
             return;
         }
         // SAFETY: UIKit calls on the main thread with valid objects.
@@ -310,6 +317,7 @@ fn cover(mtm: MainThreadMarker) {
             let in_scene = window.as_ref().is_some_and(|w| w.windowScene().is_some());
             eprintln!("TAWARA scene: key window in scene={in_scene}");
             let Some(window) = window else {
+                eprintln!("TAWARA lifecycle: inactive; no cover: no key window");
                 return;
             };
             let view = UIView::initWithFrame(mtm.alloc(), window.bounds());
@@ -321,9 +329,9 @@ fn cover(mtm: MainThreadMarker) {
             );
             window.addSubview(&view);
             *cover = Some(view);
+            eprintln!("TAWARA lifecycle: inactive; cover added");
         }
     });
-    eprintln!("TAWARA lifecycle: inactive; covered");
 }
 
 /// Active again: the cover goes. The wallet is locked if the application

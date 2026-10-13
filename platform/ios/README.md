@@ -18,11 +18,13 @@ What the Rust side does (`crates/mobile/src/ios.rs`): the store under
 `NSFileProtectionComplete` (D32 item 3) and excluded from iCloud and device
 backups with `NSURLIsExcludedFromBackupKey` (docs/PLAN.md section 4.5); the
 pasteboard; the share sheet, a `UIActivityViewController` without its own
-Copy, on the top controller; a cover over the window whenever the application is not active,
-so the app switcher's snapshot shows nothing (section 4.3); the lock
-when it enters the background. Putting winit's window in the window scene
-UIKit connects is the iced fork's, since winit 0.30 has no scene support of
-its own (D32 item 8); the app's part is the manifest.
+Copy, on the top controller of the key window; a cover over the key window
+whenever the application is not active, so the app switcher's snapshot shows
+nothing (section 4.3), or, if UIKit has no key window, no cover and a log
+line saying so, which fails the simulator check; the lock when it enters the
+background. Putting winit's window in the window scene UIKit connects is the
+iced fork's, since winit 0.30 has no scene support of its own (D32 item 8);
+the app's part is the manifest.
 
 Phase 5's signed build adds the `com.apple.developer.default-data-protection`
 entitlement, so that every file the application makes is protected from

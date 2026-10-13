@@ -18,8 +18,9 @@
 # FLAG_SECURE on Android and the store's folder protected and excluded from
 # backups on iOS, its window in UIKit's window scene (D32 item 8), and locks
 # on leaving the screen; and that the Android manifest carries the backup
-# rules and the iOS bundle the scene manifest. It says nothing about a real phone, which the
-# owner checks (D32 item 2).
+# rules and the eighteen configuration changes of API 35 (D32 item 9), and
+# the iOS bundle the scene manifest. It says nothing about a real phone,
+# which the owner checks (D32 item 2).
 
 name: mobile
 
