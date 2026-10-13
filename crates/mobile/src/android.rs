@@ -1,12 +1,15 @@
-//! Android: the window's flags, the store's directory, the clipboard, Back
-//! and the lock, with no Java code (docs/DECISIONS.md D4, D32).
+//! Android: the window's flags, the store's directory, the clipboard, the
+//! share sheet, Back and the lock, with no Java code (docs/DECISIONS.md D4,
+//! D32).
 //!
 //! The activity is `android.app.NativeActivity` (platform/android). JNI
 //! reaches the platform's classes through the `Application` that
 //! android-activity registers with `ndk-context`, as phase 1's spike did
 //! (Tawara-wallet's docs/spikes/P1-REPORT.md). What this writes on stderr,
 //! and the exit and stop lines written directly, goes to logcat under the
-//! tag `RustStdoutStderr`, one `TAWARA` line per fact, never a secret.
+//! tag `RustStdoutStderr`, one `TAWARA` line per fact, never a secret. A Java
+//! exception that the share sheet's calls leave pending is described in the
+//! system log as well, outside those lines, and its trace can take several.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -50,6 +53,7 @@ pub fn main(app: AndroidApp) {
     let host = Host {
         private_dir,
         copy,
+        share,
         back,
     };
     if let Err(error) = tawara_app::run_in(host) {
@@ -138,12 +142,131 @@ fn log_direct(line: &str) {
 /// Puts `text` on the clipboard through `ClipboardManager`, marked sensitive
 /// (docs/DECISIONS.md D32 item 9 (d) and item 10). From Android
 /// 13 the system does not show a sensitive copy in its clipboard preview, and
-/// earlier versions ignore the mark. A destination or a signed spend is not
-/// secret, but a copy should not put it on the screen uninvited.
+/// earlier versions ignore the mark. A destination is not secret, but a copy
+/// should not put it on the screen uninvited. A signed spend is held to that
+/// same rule because these are the only bytes that can move these funds while
+/// the reservation is open.
 fn copy(text: &str) {
     if let Err(error) = clipboard_write(text) {
         eprintln!("TAWARA clipboard: {error:?}");
     }
+}
+
+/// Offers `text` to the system's share sheet through `Intent.createChooser`,
+/// with `name` as the subject and the chooser's title (docs/DECISIONS.md D32
+/// item 10 (i)). `Ok` says only that the chooser was started: the application
+/// cannot learn what was done with it.
+///
+/// The chooser is the system's own window, so `FLAG_SECURE` (D32 item 4) does
+/// not cover it. On an arm64 Android 16 (API 36) emulator (2026-10-13) it
+/// showed the text in a preview and a "Copy text" button beside it, and a
+/// screenshot taken while it was up showed the chooser and its preview over
+/// Tawara's blacked-out window. That Copy puts the signed bytes on the
+/// clipboard without the sensitive mark that D32 item 10 (j) asks of every
+/// copy and that `copy` sets. Tawara sets no option that removes the preview
+/// or the button, and knows of none short of sharing a file through a
+/// `FileProvider`, which D4 rules out. The owner decided on 2026-10-13 to
+/// accept both for the sheet's lifetime, as an exception to D32 item 10 (i)
+/// (Tawara-mobile#8). The sheet opens only when Save artifact is pressed, to
+/// hand these same bytes to another app, and Tawara's own copy, which is
+/// marked, remains. On that emulator the chooser was translucent: Tawara's
+/// window stayed, and the wallet did not lock while the chooser was up.
+fn share(name: &str, text: &str) -> Result<(), String> {
+    // `main` sets APP before `run_in`, and the application reaches this only
+    // through `run_in`, so the activity is always known here. The `else` is
+    // an error rather than a panic, so that a later change of order shows in
+    // the wallet as a refusal and not as a crash. (`back` has nothing to
+    // report to and returns quietly instead.)
+    let result = match APP.get() {
+        Some(app) => share_text(app, name, text).map_err(|error| error.to_string()),
+        None => Err("the activity is not known yet".to_owned()),
+    };
+    match &result {
+        Ok(()) => eprintln!("TAWARA share: chooser started"),
+        Err(error) => eprintln!("TAWARA share: {error}"),
+    }
+    result
+}
+
+/// The chooser for `text`, started on the activity. The text travels in an
+/// extra, so no file is written and no FileProvider is needed (D4). A Java
+/// exception left pending is described for logcat and cleared here, because
+/// the application shows the error this returns, and that must stay one line.
+fn share_text(app: &AndroidApp, name: &str, text: &str) -> jni::errors::Result<()> {
+    // SAFETY: both pointers stay valid while `app` is alive (android-activity
+    // documents `vm_as_ptr` and `activity_as_ptr` this way).
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
+    let activity = app.activity_as_ptr() as jni::sys::jobject;
+    vm.attach_current_thread(|env| {
+        // SAFETY: the activity's own reference, alive while `app` is.
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity)? };
+        let result = start_chooser(env, &activity, name, text);
+        if result.is_err() && env.exception_check() {
+            env.exception_describe();
+            env.exception_clear();
+        }
+        result
+    })
+}
+
+/// `ACTION_SEND` as `text/plain`, through `Intent.createChooser`, started on
+/// `activity`.
+fn start_chooser(
+    env: &mut jni::Env,
+    activity: &JObject,
+    name: &str,
+    text: &str,
+) -> jni::errors::Result<()> {
+    let action = env.new_string("android.intent.action.SEND")?;
+    let mime = env.new_string("text/plain")?;
+    let extra_text = env.new_string("android.intent.extra.TEXT")?;
+    let extra_subject = env.new_string("android.intent.extra.SUBJECT")?;
+    let value = env.new_string(text)?;
+    let subject = env.new_string(name)?;
+    let intent = env.new_object(
+        jni_str!("android/content/Intent"),
+        jni_sig!(() -> void),
+        &[],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("setAction"),
+        jni_sig!((java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&action)],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("setType"),
+        jni_sig!((java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&mime)],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("putExtra"),
+        jni_sig!((java.lang.String, java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&extra_text), JValue::Object(&value)],
+    )?;
+    env.call_method(
+        &intent,
+        jni_str!("putExtra"),
+        jni_sig!((java.lang.String, java.lang.String) -> android.content.Intent),
+        &[JValue::Object(&extra_subject), JValue::Object(&subject)],
+    )?;
+    let chooser = env
+        .call_static_method(
+            jni_str!("android/content/Intent"),
+            jni_str!("createChooser"),
+            jni_sig!((android.content.Intent, java.lang.CharSequence) -> android.content.Intent),
+            &[JValue::Object(&intent), JValue::Object(&subject)],
+        )?
+        .l()?;
+    env.call_method(
+        activity,
+        jni_str!("startActivity"),
+        jni_sig!((android.content.Intent) -> void),
+        &[JValue::Object(&chooser)],
+    )?;
+    Ok(())
 }
 
 /// Back: move the task to the background, as Android 12 and later do

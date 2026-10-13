@@ -3,9 +3,9 @@
 //!
 //! The same `tawara-app` runs here as on the desktop, through
 //! [`tawara_app::run_in`] with a [`tawara_app::Host`]: the app-private
-//! directory, the platform's clipboard and Android's Back. What else each
-//! platform needs is done before the application starts or from the
-//! platform's own notices:
+//! directory, the platform's clipboard, its share sheet and Android's Back.
+//! What else each platform needs is done before the application starts or
+//! from the platform's own notices:
 //!
 //! - **Android** (`src/android.rs`): `FLAG_SECURE` on the whole window (D32 item
 //!   4); the store in `no_backup/` (D21), which the manifest's backup rules
