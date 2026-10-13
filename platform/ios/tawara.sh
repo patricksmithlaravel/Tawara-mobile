@@ -74,7 +74,44 @@ wait_after() { # wait_after FILE LINE ERE SECONDS: the first match after line LI
     t=$((t + 1))
   done
 }
-shot() { xcrun simctl io "$UDID" screenshot --type=png "$OUT/shots/$1.png" >/dev/null 2>&1 || true; }
+# shot NAME: a screenshot of the simulator. An earlier run's file of the same
+# name is removed first, so that a screenshot that fails is missing rather than
+# stale, and status_bar.light below never reads another run's start screen.
+shot() {
+  rm -f "$OUT/shots/$1.png"
+  xcrun simctl io "$UDID" screenshot --type=png "$OUT/shots/$1.png" >/dev/null 2>&1 || true
+}
+# light_pixels PNG: how many pixels of the top 6% of PNG are above luminance
+# 160 of 255. sips writes a BMP, and python3's standard library reads it at
+# 24 or 32 bits, top-down or bottom-up, so that no image library is needed.
+# The status bar sits in that band on every phone the simulator shows, and its
+# clock and icons are light on Tawara's dark screens (D27 item 8). sips skips
+# a file it cannot read and still exits 0, so the BMP is removed first: an
+# earlier run's BMP would otherwise be counted in place of a missing screenshot.
+light_pixels() {
+  rm -f "$OUT/light.bmp"
+  sips -s format bmp "$1" --out "$OUT/light.bmp" >/dev/null 2>&1 || return 1
+  [ -s "$OUT/light.bmp" ] || return 1
+  python3 - "$OUT/light.bmp" <<'PY'
+import struct, sys
+data = open(sys.argv[1], "rb").read()
+off = struct.unpack_from("<I", data, 10)[0]
+w, h = struct.unpack_from("<ii", data, 18)
+bpp = struct.unpack_from("<H", data, 28)[0] // 8
+top_down = h < 0
+h = abs(h)
+stride = (w * bpp * 8 + 31) // 32 * 4
+band = max(1, round(h * 0.06))
+n = 0
+for y in range(band):
+    row = off + (y if top_down else h - 1 - y) * stride
+    for x in range(w):
+        p = row + x * bpp
+        if 0.299 * data[p + 2] + 0.587 * data[p + 1] + 0.114 * data[p] > 160:
+            n += 1
+print(n)
+PY
+}
 # wait_pasteboard UDID: the text on the simulator's pasteboard, read every
 # quarter of a second for about five seconds until there is some. The test
 # prints `copied` once it has made the copy, but the pasteboard that
@@ -121,6 +158,17 @@ simulator() {
   # simulator alone would not catch its loss.
   check bundle.scene_manifest "UIApplicationSceneManifest in Info.plist" \
     plutil -extract UIApplicationSceneManifest.UISceneConfigurations xml1 -o /dev/null "$app/Info.plist"
+  # The status bar is light on the dark screens (D27 item 8). These two keys
+  # make UIKit take its style from UIStatusBarStyle, and not from the iced
+  # fork's view controller, whose default style leaves the colour to UIKit
+  # (Info.plist.in says why). A key that is missing or different would bring
+  # the dark clock back, so both are read here, and the start screenshot is
+  # checked below.
+  local style appearance
+  style=$(plutil -extract UIStatusBarStyle raw -o - "$app/Info.plist" 2>/dev/null || true)
+  appearance=$(plutil -extract UIViewControllerBasedStatusBarAppearance raw -o - "$app/Info.plist" 2>/dev/null || true)
+  check bundle.status_bar "UIStatusBarStyle is '$style'" test "$style" = UIStatusBarStyleLightContent
+  check bundle.status_bar_appearance "UIViewControllerBasedStatusBarAppearance is '$appearance'" test "$appearance" = false
   codesign --force --sign - --timestamp=none "$app"
   codesign --verify --verbose=2 "$app"
   endgroup
@@ -165,6 +213,13 @@ PY
   check store.excluded "${line:-no store line}" grep -q 'excluded_from_backup=true' <<<"$line"
   sleep 8
   shot 01-start
+  # The status bar's clock and icons are light pixels on the start screen
+  # when the style is light content. With a dark clock on the dark start
+  # screen, the top of the screen has almost none (D27 item 8). A failed read
+  # leaves the count empty, which fails the check.
+  local lit
+  lit=$(light_pixels "$OUT/shots/01-start.png" 2>/dev/null || true)
+  check status_bar.light "$lit light pixels in the top 6% of the start screen" test "${lit:-0}" -ge 300
   endgroup
 
   group "the directory as the system holds it"
