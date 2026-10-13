@@ -63,5 +63,18 @@
 	<array>
 		<string>arm64</string>
 	</array>
+	<!-- The clock and icons of the status bar are light on Tawara's screens,
+	     which are all dark (docs/DECISIONS.md D27 item 8). The iced fork's
+	     winit view controller (vendor/winit/src/platform_impl/ios/view_controller.rs
+	     at d4ab3a0) answers preferredStatusBarStyle with UIStatusBarStyleDefault,
+	     which leaves the colour to UIKit: the clock was seen dark on the dark
+	     background (iPhone 18 Pro simulator, iOS 27). With
+	     UIViewControllerBasedStatusBarAppearance set to NO, UIKit takes the
+	     style from UIStatusBarStyle below instead of asking the view controller,
+	     so the fork does not change. -->
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
 </dict>
 </plist>
