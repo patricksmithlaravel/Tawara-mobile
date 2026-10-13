@@ -90,8 +90,19 @@ apk() {
   cd "$ROOT"
   local bt jar w=$OUT/apk
   bt=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
-  jar=$(ls -d "$SDK"/platforms/android-3[5-9] 2>/dev/null | sort -V | tail -1)/android.jar
-  [ -f "$jar" ] || die "no android-35 or later platform in $SDK/platforms"
+  # aapt2 links against API 36's jar, pinned rather than the newest one
+  # installed, because it knows assetsPaths from that platform only (D32 item 9
+  # (i)). The jar supplies the attribute names and the framework's resource
+  # IDs, such as the theme's; the API level the application targets stays at
+  # TARGET_API. A runner without the platform installs it, as ndk_paths does
+  # the NDK, and the build stops if it is still missing rather than compile
+  # against another platform.
+  jar=$SDK/platforms/android-36/android.jar
+  if [ ! -f "$jar" ]; then
+    # `yes` dies of SIGPIPE when sdkmanager exits; only sdkmanager's status counts.
+    (yes 2>/dev/null || true) | sdkmanager --install "platforms;android-36" >/dev/null
+  fi
+  [ -f "$jar" ] || die "no android-36 platform in $SDK/platforms (sdkmanager 'platforms;android-36')"
   echo "build-tools $bt; platform $jar"
   rm -rf "$w"
   mkdir -p "$w/root/lib" "$w/res"
@@ -334,17 +345,18 @@ on_emulator() {
   check manifest.dataExtractionRules "android:dataExtractionRules names the rules" \
     grep -q 'android:dataExtractionRules' "$OUT/manifest.txt"
   # The activity handles every configuration change this mask names (D32
-  # item 9), so the mask must hold the eighteen names of API 35. A name left
-  # out lets Android recreate the activity, which ends the application. The
-  # detail shows each mask aapt2 read, to compare bit by bit with 0x5000ffff.
-  # They are joined on one line, so a second element with a mask of its own
-  # fails the check rather than hide behind the first.
+  # item 9), so the mask must hold the nineteen names: the eighteen of API 35
+  # and assetsPaths of API 36. A name left out lets Android recreate the
+  # activity, which ends the application. The detail shows each mask aapt2
+  # read, to compare bit by bit with 0xd000ffff. They are joined on one line,
+  # so a second element with a mask of its own fails the check rather than
+  # hide behind the first.
   local changes
   changes=$(awk 'match($0, /configChanges\(0x[0-9a-f]+\)=.*/) {
     s = s (s == "" ? "" : "; ") substr($0, RSTART)
   } END { print (s == "" ? "no configChanges" : s) }' "$OUT/manifest.txt")
-  check manifest.configChanges "want 0x5000ffff (18 names): $changes" \
-    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0x5000ffff$' <<<"$changes"
+  check manifest.configChanges "want 0xd000ffff (19 names): $changes" \
+    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0xd000ffff$' <<<"$changes"
   endgroup
 
   group "install and start"
@@ -419,6 +431,7 @@ on_emulator() {
   # paths of every running application, and the system reports that to each of
   # them. An activity that does not declare assetsPaths is relaunched for the
   # change, and a relaunch ends this application (D32 item 9 (i) and (d)). The
+  # manifest declares assetsPaths, so neither may happen here. The
   # check needs the activity in front before the toggle, so that a process which
   # is already gone cannot pass it. The update must then reach the application,
   # or the checks after it would pass without the change they are about. The
