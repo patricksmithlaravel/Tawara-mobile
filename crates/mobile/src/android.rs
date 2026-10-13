@@ -7,7 +7,9 @@
 //! android-activity registers with `ndk-context`, as phase 1's spike did
 //! (Tawara-wallet's docs/spikes/P1-REPORT.md). What this writes on stderr
 //! goes to logcat under the tag `RustStdoutStderr`, one `TAWARA` line per
-//! fact, never a secret.
+//! fact, never a secret. A Java exception that the share sheet's calls leave
+//! pending is described in the system log as well, outside those lines, and
+//! its trace can take several.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -102,23 +104,31 @@ fn copy(text: &str) {
 /// cannot learn what was done with it.
 ///
 /// The chooser is the system's own window, so `FLAG_SECURE` (D32 item 4) does
-/// not cover it: while it is up, a screenshot or the recent-apps thumbnail can
-/// show its preview of the signed bytes, and its own Copy, where the system
-/// offers one, puts them on the clipboard without the sensitive mark `copy` is
-/// to set (D32 item 10 (j)). No app-side switch turns either off without a
-/// file through a `FileProvider`, which D4 rules out; the sheet opens only
-/// when Save artifact is pressed, to hand these same bytes to another app.
+/// not cover it. On an arm64 Android 16 (API 36) emulator (2026-10-13) it
+/// showed the text in a preview and a "Copy text" button beside it, and a
+/// screenshot taken while it was up showed the chooser and its preview over
+/// Tawara's blacked-out window. That Copy puts the signed bytes on the
+/// clipboard without the sensitive mark that D32 item 10 (j) asks of every
+/// copy and that `copy` sets. Tawara sets no option that removes the preview
+/// or the button, and knows of none short of sharing a file through a
+/// `FileProvider`, which D4 rules out. Whether to accept both for the sheet's
+/// lifetime, or to have no sheet on Android, is the owner's decision
+/// (Tawara-mobile#8). The sheet opens only when Save artifact is pressed, to
+/// hand these same bytes to another app. On that emulator the chooser was
+/// translucent: Tawara's window stayed, and the wallet did not lock while the
+/// chooser was up.
 fn share(name: &str, text: &str) -> Result<(), String> {
     // `main` sets APP before `run_in`, and the application reaches this only
     // through `run_in`, so the activity is always known here. The `else` is
-    // an error rather than a panic, as in `back`, so that a later change of
-    // order shows in the wallet as a refusal and not as a crash.
+    // an error rather than a panic, so that a later change of order shows in
+    // the wallet as a refusal and not as a crash. (`back` has nothing to
+    // report to and returns quietly instead.)
     let result = match APP.get() {
         Some(app) => share_text(app, name, text).map_err(|error| error.to_string()),
         None => Err("the activity is not known yet".to_owned()),
     };
     match &result {
-        Ok(()) => eprintln!("TAWARA share: chooser shown"),
+        Ok(()) => eprintln!("TAWARA share: chooser started"),
         Err(error) => eprintln!("TAWARA share: {error}"),
     }
     result
