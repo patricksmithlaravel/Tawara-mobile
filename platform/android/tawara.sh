@@ -150,7 +150,125 @@ wait_log() { # wait_log MARK ERE SECONDS: prints the first matching application 
 }
 app_pid() { ash pidof "$PKG" || true; }
 resumed() { ash dumpsys activity activities | grep -m1 -E 'topResumedActivity=|ResumedActivity:' || true; }
-crashed() { grep -E "FATAL EXCEPTION|Fatal signal|$TAG: thread .* panicked" "$LOG" >/dev/null 2>&1; }
+# crash_lines PID...: one line for each crash in the log since its start, as
+# 'own' or 'other', a tab, and what the log said. A crash whose process is
+# named is judged by that name alone: it is the application's when the name is
+# the package or one of the package's processes, and another process's
+# otherwise, even when its PID is one the application once had, because the
+# recorded PIDs span the reboot and another process can be given one of them.
+# A crash whose process is not named is the application's when its PID is one
+# the run recorded or one that wrote a TAWARA line in this log. The PIDs the
+# run recorded miss a process that was restarted, or one that died before its
+# PID was read, but such a process still wrote its TAWARA lines under its PID
+# if it got as far as its start. Any other unnamed crash is 'other', so that
+# another process's crash is not taken for the application's.
+#
+# AndroidRuntime writes the FATAL EXCEPTION line and the line that names its
+# process as one message, so the line right after a FATAL EXCEPTION belongs to
+# it: it is 'Process: NAME, PID: N', or 'PID: N' for a process without a name.
+# Without such a line, the PID column of the FATAL line stands in, because the
+# crashing process writes that line itself. The system server's '*** FATAL
+# EXCEPTION IN SYSTEM PROCESS' banner is matched the same way. A 'Fatal signal'
+# gives the crashing process as 'pid N (name)'. Its PID is read from there and
+# not from the PID column, because the line can be written by another process
+# than the one that crashed. A 'Fatal signal' that does not name its process is
+# the exception to the rule above: it is counted as the application's, since
+# nothing shows that it belongs to another process, and exit.no_sigabrt
+# catches only the application's aborts, and only from the first Back on. A
+# Rust panic under the application's own tag is the application's by that tag.
+crash_lines() {
+  awk -v pkg="$PKG" -v tag="$TAG" -v pids=" $* " '
+    BEGIN { n = 0; pending = 0; panic = tag ": thread .* panicked" }
+    index($0, tag ": TAWARA ") { app[$3] = 1 }
+    index($0, "FATAL EXCEPTION") {
+      pending = ++n
+      text[n] = substr($0, index($0, "FATAL EXCEPTION"))
+      name[n] = ""
+      pid[n] = $3
+      where[n] = ", pid " $3 ", no process name logged"
+      unknown[n] = 0
+      next
+    }
+    pending && match($0, /(Process: [^,]+, )?PID: [0-9]+/) {
+      s = substr($0, RSTART, RLENGTH)
+      i = index(s, "PID: ")
+      pid[pending] = substr(s, i + 5)
+      if (i > 1) {
+        name[pending] = substr(s, 10, i - 12)
+        where[pending] = " in " name[pending] ", pid " pid[pending]
+      } else {
+        where[pending] = ", pid " pid[pending] ", no process name logged"
+      }
+      pending = 0
+      next
+    }
+    index($0, "Fatal signal") {
+      pending = 0
+      text[++n] = substr($0, index($0, "Fatal signal"))
+      name[n] = ""
+      pid[n] = ""
+      where[n] = ", no process logged"
+      unknown[n] = 1
+      if (match($0, /pid [0-9]+( \([^)]*\))?/)) {
+        s = substr($0, RSTART + 4, RLENGTH - 4)
+        i = index(s, " (")
+        if (i > 0) {
+          pid[n] = substr(s, 1, i - 1)
+          name[n] = substr(s, i + 2, length(s) - i - 2)
+          where[n] = ""
+          unknown[n] = 0
+        } else {
+          pid[n] = s
+          where[n] = ", no process name logged"
+        }
+      }
+      next
+    }
+    match($0, panic) {
+      pending = 0
+      text[++n] = substr($0, index($0, tag))
+      name[n] = pkg
+      pid[n] = $3
+      where[n] = ""
+      unknown[n] = 0
+      next
+    }
+    { pending = 0 }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (unknown[i] || name[i] == pkg || index(name[i], pkg ":") == 1) mine = 1
+        else if (name[i] != "") mine = 0
+        else mine = (pid[i] != "" && ((pid[i] in app) || index(pids, " " pid[i] " ") > 0))
+        s = text[i] where[i]
+        printf "%s\t%s\n", (mine ? "own" : "other"), substr(s, 1, 240)
+      }
+    }
+  ' "$LOG"
+}
+# no_crash_check PID...: records the no_crash check. A crash of the application
+# fails it. A crash of another process is printed as a note and passes, since the
+# emulator's own processes can crash while the application does nothing wrong. A
+# native crash of the application still fails it, since exit.no_sigabrt covers
+# only aborts, and only from the first Back on. An empty or missing log fails
+# it, since a log with nothing in it cannot show that nothing crashed.
+no_crash_check() {
+  local crashes own other
+  if [ ! -s "$LOG" ]; then
+    record no_crash FAIL "the log is empty or missing, so a crash cannot be ruled out"
+    return 0
+  fi
+  crashes=$(crash_lines "$@")
+  own=$(grep '^own' <<<"$crashes" | cut -f2- | head -3 | tr '\n' ' ' || true)
+  other=$(grep '^other' <<<"$crashes" | cut -f2- | head -1 || true)
+  if [ -n "$own" ]; then
+    record no_crash FAIL "$own"
+  elif [ -n "$other" ]; then
+    record no_crash PASS "no crash of the application; another process's crash is noted, not counted: $other"
+  else
+    record no_crash PASS "no crash or panic in the log"
+  fi
+  grep '^other' <<<"$crashes" | cut -f2- | sed 's/^/note: not counted, another process: /' || true
+}
 tag_lines() { tail -n +"$(($1 + 1))" "$LOG" | grep -E "$TAG" || true; } # since MARK
 # The application's lines one process logged, read from the device's own
 # buffer: the exit line is the last thing the process writes, so it should
@@ -170,7 +288,7 @@ wait_device() { # wait_device PID ERE SECONDS: prints the first matching line of
 }
 # A SIGABRT since MARK in one of the PIDs (logcat's third column) or naming
 # the package, so that another process's abort is not reported as the
-# application's; the no_crash sweep still catches every process.
+# application's; no_crash notes that abort without failing on it.
 aborts() { # aborts MARK PID...
   local mark=$1
   shift
@@ -588,11 +706,9 @@ on_emulator() {
   check exit.restored "'Don't keep activities' reads $restored, as it was ($KEEP_WAS)" test "$restored" = "$KEEP_WAS"
   endgroup
 
-  if crashed; then
-    record no_crash FAIL "$(grep -m3 -E 'FATAL|Fatal signal|panicked' "$LOG" | tr '\n' ' ')"
-  else
-    record no_crash PASS "no crash or panic in the log"
-  fi
+  # Only the application's crashes fail this check; see crash_lines.
+  # shellcheck disable=SC2086 # Split on purpose: one argument per pid.
+  no_crash_check "$pid" $pids
 
   group "the application's lines"
   grep -E "$TAG: TAWARA " "$LOG" | sed -E "s/.*$TAG: //" || true
