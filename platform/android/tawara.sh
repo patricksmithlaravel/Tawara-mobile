@@ -4,6 +4,7 @@
 #   platform/android/tawara.sh build      # libtawara_mobile.so, arm64-v8a and x86_64
 #   platform/android/tawara.sh apk        # the APK, signed with a throwaway debug key
 #   platform/android/tawara.sh emulator   # boot an emulator, install, run the checks
+#   platform/android/tawara.sh selftest   # the crash parser, on logged lines
 #
 # No Java, Kotlin or Gradle: the activity is android.app.NativeActivity, the
 # APK is linked with aapt2 and zipped, aligned and signed by hand, as phase
@@ -170,16 +171,28 @@ resumed() { ash dumpsys activity activities | grep -m1 -E 'topResumedActivity=|R
 # Without such a line, the PID column of the FATAL line stands in, because the
 # crashing process writes that line itself. The system server's '*** FATAL
 # EXCEPTION IN SYSTEM PROCESS' banner is matched the same way. A 'Fatal signal'
-# gives the crashing process as 'pid N (name)'. Its PID is read from there and
-# not from the PID column, because the line can be written by another process
-# than the one that crashed. A 'Fatal signal' that does not name its process is
-# the exception to the rule above: it is counted as the application's, since
-# nothing shows that it belongs to another process, and exit.no_sigabrt
-# catches only the application's aborts, and only from the first Back on. A
-# Rust panic under the application's own tag is the application's by that tag.
+# gives the thread as 'tid N (thread)' and the crashing process as 'pid N
+# (name)'. Its PID is read from there and not from the PID column, because the
+# line can be written by another process than the one that crashed. Its name is
+# the kernel's, which keeps 15 characters: the application's is 'hlaravel.tawara',
+# the tail of com.patricksmithlaravel.tawara, on API 36 (D32 item 9 (j)). So the
+# name is matched with the first or the last 15 characters of the package, and
+# never with the whole package, which such a line does not hold. The first 15 are
+# accepted too, since the logs here cannot show which 15 an older release keeps.
+# A 'Fatal signal' that does not name its process is the exception to the rule
+# above: it is counted as the application's, since nothing shows that it belongs
+# to another process, and exit.no_sigabrt catches only the application's aborts,
+# and only from the first Back on. A Rust panic under the application's own tag
+# is the application's by that tag.
 crash_lines() {
   awk -v pkg="$PKG" -v tag="$TAG" -v pids=" $* " '
-    BEGIN { n = 0; pending = 0; panic = tag ": thread .* panicked" }
+    BEGIN {
+      n = 0; pending = 0; panic = tag ": thread .* panicked"
+      # The kernel name of the process: 15 characters (see above).
+      long = length(pkg) > 15
+      head = long ? substr(pkg, 1, 15) : pkg
+      tail = long ? substr(pkg, length(pkg) - 14) : pkg
+    }
     index($0, tag ": TAWARA ") { app[$3] = 1 }
     index($0, "FATAL EXCEPTION") {
       pending = ++n
@@ -237,7 +250,7 @@ crash_lines() {
     { pending = 0 }
     END {
       for (i = 1; i <= n; i++) {
-        if (unknown[i] || name[i] == pkg || index(name[i], pkg ":") == 1) mine = 1
+        if (unknown[i] || name[i] == pkg || name[i] == head || name[i] == tail || index(name[i], pkg ":") == 1) mine = 1
         else if (name[i] != "") mine = 0
         else mine = (pid[i] != "" && ((pid[i] in app) || index(pids, " " pid[i] " ") > 0))
         s = text[i] where[i]
@@ -717,9 +730,47 @@ on_emulator() {
   ! grep -q $'\tFAIL\t' "$OUT/results.tsv"
 }
 
+# selftest: the crash parser on the lines the emulator check logged in the run
+# that reproduced the application's SIGABRT (D32 item 9 (j)). The five 'Fatal
+# signal' lines are copied from that run's logcat: five processes, two thread
+# names, the application's name as the kernel keeps it. Each must be counted as
+# the application's. The system_server line is not from the run: it has the same
+# form with another process's name, so that the other branch is exercised, and it
+# must not be counted as the application's. A verdict that differs fails the script.
+selftest() {
+  local fixture=$OUT/selftest-logcat.txt saved=$LOG crashes own other failed=0
+  cat >"$fixture" <<'LOGCAT'
+10-12 23:45:29.642  2060  2132 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 2132 (hwuiTask0), pid 2060 (hlaravel.tawara)
+10-12 23:45:47.758  3651  3676 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 3676 (hwuiTask0), pid 3651 (hlaravel.tawara)
+10-12 23:46:06.085  4026  4051 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4051 (hwuiTask0), pid 4026 (hlaravel.tawara)
+10-12 23:46:22.372  4110  4135 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4135 (hwuiTask0), pid 4110 (hlaravel.tawara)
+10-12 23:46:39.773  4318  4345 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4345 (hwuiTask1), pid 4318 (hlaravel.tawara)
+10-12 23:45:29.600   655   695 F libc    : Fatal signal 6 (SIGABRT), code -6 (SI_TKILL) in tid 695 (system_server), pid 655 (system_server)
+LOGCAT
+  LOG=$fixture
+  crashes=$(crash_lines 2060 3651 4026 4110 4318)
+  LOG=$saved
+  own=$(grep -c '^own' <<<"$crashes" || true)
+  other=$(grep -c '^other' <<<"$crashes" || true)
+  if [ "$own" = 5 ]; then
+    echo "CHECK PASS selftest.app_aborts: $own of 5 of the application's aborts counted as its own"
+  else
+    echo "CHECK FAIL selftest.app_aborts: $own of 5 counted as the application's: $crashes"
+    failed=1
+  fi
+  if [ "$other" = 1 ]; then
+    echo "CHECK PASS selftest.other_process: another process's abort is not counted as the application's"
+  else
+    echo "CHECK FAIL selftest.other_process: $other counted as the application's, 1 expected: $crashes"
+    failed=1
+  fi
+  return "$failed"
+}
+
 case ${1:-} in
   build) build ;;
   apk) apk ;;
   emulator) on_emulator ;;
-  *) die "usage: $0 build|apk|emulator" ;;
+  selftest) selftest ;;
+  *) die "usage: $0 build|apk|emulator|selftest" ;;
 esac

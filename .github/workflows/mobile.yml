@@ -115,6 +115,9 @@ jobs:
           nproc; free -g; df -h / | tail -1
           rustc -vV
 
+      - name: Crash parser self-check
+        run: bash "$TAWARA/platform/android/tawara.sh" selftest
+
       - name: Build libtawara_mobile.so (arm64-v8a, x86_64)
         run: bash "$TAWARA/platform/android/tawara.sh" build
 
