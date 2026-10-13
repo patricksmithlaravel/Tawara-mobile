@@ -9,8 +9,8 @@
 #
 # There is no Xcode project: the bundle is crates/mobile's `tawara` binary
 # and an Info.plist made from Info.plist.in, as phase 1's spike was
-# (docs/spikes/P1-REPORT.md). Signing for a device and the store
-# (`com.apple.developer.default-data-protection`) is phase 5's.
+# (Tawara-wallet's docs/spikes/P1-REPORT.md). Signing for a device and the
+# store (`com.apple.developer.default-data-protection`) is phase 5's.
 #
 # The application's stderr goes to the file `simctl launch --stderr` names:
 # `TAWARA ...` lines, never a secret. This script prints `CHECK PASS|FAIL

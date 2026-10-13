@@ -6,20 +6,23 @@
 # job of .github/workflows/mobile.yml. It reaches the network for the
 # advisory database.
 #
-# Tawara-wallet's `deny.toml` is this file's template, copied with two
-# changes: Tawara-wallet itself is an allowed git source, since `tawara-app`
-# comes from it (Tawara-wallet's docs/DECISIONS.md D33), and the licence
-# entries name `tawara-mobile` where that file names `tawara-desktop`. Its
-# own account of where it comes from follows.
+# Tawara-wallet's `deny.toml` is this file's template, and its rules are
+# copied with two changes: Tawara-wallet itself is an allowed git source,
+# since `tawara-app` comes from it (Tawara-wallet's docs/DECISIONS.md D33),
+# and the licence entries name `tawara-mobile` where that file names
+# `tawara-desktop`. The comments are adapted to this repository and name
+# Tawara-wallet where they cite its records. Its own account of where it
+# comes from follows.
 #
 # WHERE THIS COMES FROM. Rep-1's `deny.toml` is the template: the same
 # advisory and source rules, the same denied features on the library's
 # transport and KDF, and the same licences for the library's own graph. What
 # is added here is the interface's graph (iced, winit, wgpu and the rest) and
 # the library itself, which in Rep-1 is the workspace crate and here is a
-# git dependency. FORK.md R2-3 is why the additions live here and never in
-# Rep-0's or Rep-1's file: the policy over the code that holds keys stays
-# exactly as it is there.
+# git dependency. Rep-0 is `patricksmithlaravel/mcm-rust-cli-wallet` and
+# Rep-1 is `patricksmithlaravel/mcm-rust-cli-windows`. FORK.md R2-3, in Rep-0,
+# is why the additions live here and never in Rep-0's or Rep-1's file: the
+# policy over the code that holds keys stays exactly as it is there.
 #
 # WHAT THIS CANNOT DO, as Rep-1's file says of itself: it catches a policy
 # violation introduced by a change -- a dependency added, a version moved, a
@@ -42,25 +45,32 @@ all-features = true
 # Each ignored advisory below is a decision to ship a known finding, with its
 # reason written beside it (docs/PLAN.md section 6: "Every entry in `ignore`
 # carries a written reason"). Both are maintenance notices, not
-# vulnerabilities, and both arrive with iced 0.14.0; FORK.md R2-2 measured
-# iced as tripping `unmaintained` twice before this repository existed, and
-# these are the two. Each is re-examined when the iced pin moves.
+# vulnerabilities, and both arrive with the iced fork at its pin, the release
+# v0.14.1-mobile.2 (Tawara-wallet's docs/DECISIONS.md D32, item 9). FORK.md
+# R2-2, in Rep-0, measured iced as tripping `unmaintained` twice before this
+# repository existed. At the pin these are still the only two, and removing
+# either one makes `cargo deny` fail. Each is re-examined when the iced pin
+# moves, and each reason below names the path that reaches its crate.
 ignore = [
     # `paste` 1.0.15: archived by its author. It is a procedural macro, so it
     # runs inside the compiler while building and contributes no code to any
-    # executable. It reaches this graph only as `metal` -> `wgpu-hal` ->
-    # `wgpu` -> iced's GPU renderer, on Apple targets, and no version of
-    # `metal` that iced 0.14.0's wgpu accepts drops it.
-    { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro reached only through metal -> wgpu-hal under iced 0.14.0's renderer; it puts no code in the executable and no compatible upgrade exists" },
+    # executable. It reaches this graph only on Apple targets, as `metal`
+    # 0.32.0 -> `wgpu-hal` 27.0.4 -> `wgpu` 27.0.1 -> `iced_wgpu`, the fork's
+    # renderer. `wgpu-hal` 27.0.4 accepts only `metal` 0.32, and that line's
+    # only release depends on `paste`, so no compatible upgrade drops it.
+    { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro reached only through metal 0.32.0 -> wgpu-hal 27.0.4 -> wgpu 27.0.1 -> iced_wgpu on Apple targets; it puts no code in the executable and no compatible upgrade exists" },
     # `ttf-parser` 0.25.1: its author has stated it will receive no further
-    # fixes. It reads font files, and arrives two ways: through `fontdb` and
-    # `cosmic-text`, which iced uses for all text, and on Linux through
-    # `owned_ttf_parser` -> `ab_glyph` -> `sctk-adwaita` -> winit, which
-    # draws Wayland window decorations with a system font. What it parses is
-    # the fonts this application bundles (docs/PLAN.md section 5) and the
-    # fonts installed on the user's own system, both already trusted; it never
-    # sees data from the node. No release of iced 0.14 uses another parser.
-    { id = "RUSTSEC-2026-0192", reason = "ttf-parser parses only bundled and locally installed fonts, never node data; it is reached through iced 0.14.0's text stack (fontdb, cosmic-text) and winit's Wayland decorations (sctk-adwaita, ab_glyph), with no maintained drop-in within this iced pin" },
+    # fixes. It reads font files, and at the pin it arrives two ways: through
+    # `fontdb` 0.23 under `cosmic-text` 0.15, which iced's text code uses, and
+    # on Linux through `owned_ttf_parser` -> `ab_glyph` -> `sctk-adwaita` ->
+    # the fork's `winit`, which draws Wayland window decorations with a system
+    # font. What it parses is the fonts this application bundles (docs/PLAN.md
+    # section 5) and the fonts installed on the user's own system, both already
+    # trusted; it never sees data from the node. `cosmic-text` 0.15 also
+    # depends on `skrifa`, a maintained parser, but it requires `fontdb` 0.23,
+    # which reads font faces with this crate, so nothing here can swap it out
+    # at the pin.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser parses only bundled and locally installed fonts, never node data; it is reached through fontdb 0.23 under cosmic-text 0.15 and, on Linux, through ab_glyph and sctk-adwaita under the fork's winit, and no patched version exists" },
 ]
 # Unmaintained crates anywhere in the graph, not just the ones this workspace
 # names directly, as in Rep-1: an application inherits the maintenance status
@@ -84,10 +94,10 @@ unused-license-exception = "deny"
 # here because a crate in this graph needs it; cargo-deny reports an entry no
 # crate uses. GPL in any version is absent, and so it can never be satisfied,
 # by a dependency of any kind:
-# FORK.md's Licence section explains that a GPL dependency would fail on the
-# Mochimo licence's field-of-use restriction. Two crates in this graph offer
-# a GPL or LGPL arm in an OR expression (`self_cell`: `Apache-2.0 OR
-# GPL-2.0-only`; `r-efi`: `MIT OR Apache-2.0 OR LGPL-2.1-or-later`); each is
+# FORK.md's Licence section, in Rep-0, explains that a GPL dependency would
+# fail on the Mochimo licence's field-of-use restriction. Two crates in this
+# graph offer a GPL or LGPL arm in an OR expression (`self_cell`: `Apache-2.0
+# OR GPL-2.0-only`; `r-efi`: `MIT OR Apache-2.0 OR LGPL-2.1-or-later`); each is
 # admitted through its permissive arm alone.
 allow = [
     # From Rep-1's file, for the library's graph and the ecosystem at large.
@@ -107,14 +117,14 @@ allow = [
     # enters with `mesh-https`, so it is in what ships.
     "CDLA-Permissive-2.0",
 
-    # Added for the interface's graph. These four are the ones FORK.md R2-2
-    # measured iced as needing, and its Licence section reads all four as
-    # permissive: notice preservation and a warranty disclaimer, no
+    # Added for the interface's graph. These four are the ones FORK.md R2-2,
+    # in Rep-0, measured iced as needing, and its Licence section reads all
+    # four as permissive: notice preservation and a warranty disclaimer, no
     # reciprocal clause, nothing that reaches into mochimo-crypto.
     #
     # `arrayref`, under `tiny-skia`, the software renderer (D2). BSD-2-Clause
     # requires its notice in binary distributions, which is what the notices
-    # generated in CI are for (FORK.md R2-9).
+    # generated in CI are for (FORK.md R2-9, in Rep-0).
     "BSD-2-Clause",
     # `clipboard-win` and `error-code`, iced's clipboard on Windows.
     "BSL-1.0",
@@ -244,6 +254,20 @@ reason = "mesh-https is defined as rustls; a platform TLS stack in C would move 
 crate = "openssl-sys"
 reason = "mesh-https is defined as rustls; OpenSSL would put a second, C, TLS stack in the graph"
 
+# WINIT HAS ONE DIRECT USER, as in Tawara-wallet's file. winit comes from the
+# owner's fork, and `iced_winit` is the only crate in this graph that depends
+# on it directly. Every iced crate comes from one commit so that the build
+# holds one copy of each (Tawara-wallet's docs/DECISIONS.md D32, items 1 and
+# 9), and a crate that named winit itself, or brought in a second copy, would
+# break that: on iOS two copies register the same Objective-C classes, and
+# objc2 panics on the duplicate name (D32 item 9 (b)). The `wrappers` list
+# admits `iced_winit` alone, so a new direct dependency on winit fails, as the
+# policy test (crates/mobile/tests/policy.rs) also checks.
+[[bans.deny]]
+crate = "winit"
+wrappers = ["iced_winit"]
+reason = "winit is the fork's copy and is reached only through iced_winit; a direct dependency or a second copy breaks the one-copy rule (Tawara-wallet's docs/DECISIONS.md D32, items 1 and 9)"
+
 # THE LIBRARY'S TEST-ONLY FEATURE. `raw-backend` makes the primitive layer,
 # including the raw WOTS+ signer, nameable from outside the library; with it
 # off, the only path to a signature is `Keystore::sign_spend` behind an
@@ -268,10 +292,12 @@ crate = "serde_json"
 deny = ["preserve_order"]
 
 [sources]
-# Every dependency is a crates.io release pinned by `Cargo.lock`, except two:
-# the wallet library, from Rep-1 by full commit hash (docs/PLAN.md D1), and
-# iced, from the owner's fork by full commit hash (docs/DECISIONS.md D32,
-# item 1). Any other git source, or any other registry, is refused.
+# Every dependency is a crates.io release pinned by `Cargo.lock`, except
+# three, each pinned by full commit hash: the wallet library, from Rep-1
+# (Tawara-wallet's docs/PLAN.md D1); `tawara-app`, from Tawara-wallet
+# (Tawara-wallet's docs/DECISIONS.md D33, item 2); and iced and its winit, from
+# the owner's fork (Tawara-wallet's docs/DECISIONS.md D32, items 1 and 9). Any
+# other git source, or any other registry, is refused.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
