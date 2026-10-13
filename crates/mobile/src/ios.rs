@@ -43,7 +43,10 @@ thread_local! {
 }
 
 /// How long a share sheet may take to open before it is taken as one that
-/// UIKit refused. On the simulator it opens within a second.
+/// UIKit refused. On an iPhone 17 simulator with iOS 27, the first sheet of a
+/// run was shown 2.4 s after it was asked for and a second one 0.6 s after
+/// (2026-10-13); five seconds leaves room for a slower phone without holding
+/// up a press that follows a refusal for long.
 const OPENING_LIMIT: Duration = Duration::from_secs(5);
 
 /// Start the application. Never returns: winit's `UIApplicationMain` ends
@@ -204,7 +207,9 @@ fn pasteboard_options() -> Retained<NSDictionary<NSString, AnyObject>> {
 /// The share sheet, through `UIActivityViewController` (docs/DECISIONS.md D32
 /// item 10 (i)). `name` is not shown: UIKit's sheet takes the text itself, and
 /// a subject would need an item provider that the shell does not write (D4).
-/// The application cannot learn what was done with the sheet.
+/// The application cannot learn what was done with the sheet. `Ok` says that
+/// UIKit was asked to present it, which is less than D32 item 10 (i) asks
+/// for; [`present_share`] says why.
 fn share(_name: &str, text: &str) -> Result<(), String> {
     let result = present_share(text);
     match &result {
@@ -220,14 +225,23 @@ fn share(_name: &str, text: &str) -> Result<(), String> {
 ///
 /// `UIActivityViewController` puts off its own presentation until its content
 /// is ready, so nothing UIKit offers says at once whether the sheet will be
-/// shown: its presenting controller is set some hundreds of milliseconds
-/// later, and a refused presentation is only a console warning. So the
-/// refusals that can be known are checked first, and the one met in practice,
-/// a second sheet asked for while the first is still opening (Save artifact
-/// pressed twice), is refused here rather than by UIKit, so that the wallet
-/// does not say a sheet was opened when it was not (D32 item 10 (i)). The
-/// presentation's completion clears that state and logs that the sheet was
-/// shown.
+/// shown. On the simulator (iOS 27, 2026-10-13), straight after the call
+/// neither the sheet's presenting controller nor the top controller's
+/// presented one was set; the sheet was shown 0.6 to 2.4 s later. A second
+/// sheet presented while the first was still waiting was refused by UIKit
+/// with only a console message ("Attempt to present ... which is waiting for
+/// a delayed presentation"), and its completion was never called.
+///
+/// So the refusals that can be known are checked first, and that second
+/// sheet, which Save artifact pressed twice would ask for, is refused here
+/// rather than by UIKit, so that the wallet hears of it. A refusal UIKit makes
+/// after this returns is not reported: `Ok` then means only that UIKit was
+/// asked, and the wallet says that the sheet was opened when it was not. D32
+/// item 10 (i) asks that `Ok` mean the sheet was shown; which of the two to
+/// change, the decision's wording or `Host::share`'s answer, is the owner's
+/// (Tawara-mobile#8). Such a refusal is logged as "never shown" at the next
+/// press after `OPENING_LIMIT`. The presentation's completion clears the
+/// opening state and logs that the sheet was shown.
 fn present_share(text: &str) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
     if let Some((_, asked)) = OPENING.get() {
@@ -254,8 +268,9 @@ fn present_share(text: &str) -> Result<(), String> {
         // The sheet's own Copy would put the signed bytes on the general
         // pasteboard with neither the local-only flag nor the expiry that D32
         // items 9 (d) and 10 (j) ask of every copy, and which belong in
-        // `copy`, so it is left out: the wallet's own Copy is the one way to
-        // the pasteboard.
+        // `copy`, so it is left out, and the sheet adds no way to the
+        // pasteboard without them. On the simulator the sheet showed no Copy
+        // (2026-10-13).
         let excluded = NSArray::from_vec(vec![UIActivityTypeCopyToPasteboard.copy()]);
         sheet.setExcludedActivityTypes(Some(&excluded));
         let window = key_window(mtm).ok_or("no key window")?;
