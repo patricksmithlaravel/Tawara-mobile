@@ -149,7 +149,17 @@ PY
   ls -la "$dir" || true
   check backup.xattr "$(xattr -l "$dir" 2>&1 | head -2 | tr '\n' ' ')" \
     xattr -p com.apple.metadata:com_apple_backup_excludeItem "$dir"
-  check dir.mode "$(stat -f '%Sp' "$dir")" test "$(stat -f '%Lp' "$dir")" = 700
+  # The folder's mode is exactly 0700, as ios.rs makes it. The octal mode
+  # leaves out the set-id and sticky bits, so a folder with one of them would
+  # pass as 700; the symbolic mode shows them (D32 items 3 and 7).
+  check dir.mode "$(stat -f '%Sp' "$dir")" test "$(stat -f '%Sp' "$dir")" = drwx------
+  # Neither mode shows an access control list, which can let others in
+  # whatever the mode says. ls -e prints each entry on a line of its own
+  # below the folder's, so the folder has none when ls prints one line; the
+  # backup attribute adds only an @ to that line.
+  local acl
+  acl=$(ls -lde "$dir" | tr '\n' ' ')
+  check dir.acl "$acl" test "$(ls -lde "$dir" | wc -l)" -eq 1
   endgroup
 
   group "to the background and back"
@@ -158,8 +168,11 @@ PY
   local switch=90 front
   front=$(wc -l <"$err")
   xcrun simctl launch "$UDID" com.apple.Preferences >/dev/null
-  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: inactive; covered$' "$switch" || true)
-  check background.covered "${line:-no cover line}" test -n "$line"
+  # The application logs "cover added" only once the cover is on the window.
+  # With no key window it logs a different line, which must not pass here
+  # (D32 item 9).
+  line=$(wait_after "$err" "$front" '^TAWARA lifecycle: inactive; cover added$' "$switch" || true)
+  check background.covered "${line:-no cover added line}" test -n "$line"
   # The scene life cycle (D32 item 8): the iced fork puts winit's window in
   # the scene the manifest declares, or nothing is shown. Read when the
   # cover goes on, well after launch, whichever order the scene and the
