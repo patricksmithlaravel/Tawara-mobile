@@ -28,13 +28,16 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
 # At 4ce2550: the head of Tawara-wallet's pull request #20 (work/phone-paste-save),
-# the paste and sharing work. Its branch holds the phone layout (#19) and the
-# move to the fork's release v0.14.1-mobile.2 (#18) under it, and it adds
-# `Host::share`, which the shells supply for Save artifact's share sheet (D32
-# item 10 (i)). It is pinned here until the wallet's pull requests merge; then
-# the pin moves to the merge commit on Tawara-wallet's `main`, as D32 item 9
-# (c) asks. It replaces the pin at 9cfeefa, Tawara-wallet pull request #18's
-# merge commit on `main`, which contains f095432, the pin before that.
+# the paste and sharing work. Under it are the move to the fork's release
+# v0.14.1-mobile.2 (#18) and the phone layout (#19), which added the required
+# `Host::share` that the shells supply for Save artifact's share sheet (D32
+# item 10 (i)). #19 is on `main` (64e14cb), where `share` returns nothing; #20
+# has it report whether the sheet opened, as this shell's `share` does, so the
+# shell builds against #20's head and not against `main`'s. It is pinned
+# here until #20 merges; then the pin moves to that merge commit on
+# Tawara-wallet's `main`, as D32 item 9 (c) asks. It replaces the pin at
+# 9cfeefa, Tawara-wallet pull request #18's merge commit on `main`, which
+# contains f095432, the pin before that.
 tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "4ce25505657b7f420c737e98b094b92f0469c2f2" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
