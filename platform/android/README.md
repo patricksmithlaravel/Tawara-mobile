@@ -15,7 +15,9 @@ D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
 - `tawara.sh`: `build` (the library for arm64-v8a and x86_64), `apk` (linked
   with aapt2, aligned, signed with a throwaway debug key: for the emulator
   and the owner's device check, never for distribution) and `emulator` (the
-  checks CI runs, `.github/workflows/mobile.yml`).
+  checks CI runs, `.github/workflows/mobile.yml`, and the system's lines about
+  the application after the first start, after the asset-path check and at
+  the end of the run, so that a start which ends says why).
 
 What the Rust side does (`crates/mobile/src/android.rs`): `FLAG_SECURE` on
 the whole window (D32 item 4), the store in `no_backup/`, the clipboard

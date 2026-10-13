@@ -8,7 +8,10 @@
 # permissions, an anonymous clone of the commit by its SHA. A run's only
 # output is its job log and step summary: `TAWARA` lines from the
 # application, `CHECK` lines from platform/android/tawara.sh and
-# platform/ios/tawara.sh, and the iOS screenshots as base64 between
+# platform/ios/tawara.sh, the system's lines about the Android application's
+# activity and process (platform/android/tawara.sh `trace`, which keeps the
+# lines that name the application or come from its processes, and the overlay
+# commits, which name none), and the iOS screenshots as base64 between
 # `-----BEGIN SHOT name-----` markers. Android's screens cannot be captured:
 # FLAG_SECURE blanks them (D32 item 4), which is one of the checks.
 #
