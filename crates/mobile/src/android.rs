@@ -96,7 +96,19 @@ fn copy(text: &str) {
 /// with `name` as the subject and the chooser's title (docs/DECISIONS.md D32
 /// item 10 (i)). `Ok` says only that the chooser was started: the application
 /// cannot learn what was done with it.
+///
+/// The chooser is the system's own window, so `FLAG_SECURE` (D32 item 4) does
+/// not cover it: while it is up, a screenshot or the recent-apps thumbnail can
+/// show its preview of the signed bytes, and its own Copy, where the system
+/// offers one, puts them on the clipboard without the sensitive mark `copy` is
+/// to set (D32 item 10 (j)). No app-side switch turns either off without a
+/// file through a `FileProvider`, which D4 rules out; the sheet opens only
+/// when Save artifact is pressed, to hand these same bytes to another app.
 fn share(name: &str, text: &str) -> Result<(), String> {
+    // `main` sets APP before `run_in`, and the application reaches this only
+    // through `run_in`, so the activity is always known here. The `else` is
+    // an error rather than a panic, as in `back`, so that a later change of
+    // order shows in the wallet as a refusal and not as a crash.
     let result = match APP.get() {
         Some(app) => share_text(app, name, text).map_err(|error| error.to_string()),
         None => Err("the activity is not known yet".to_owned()),

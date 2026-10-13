@@ -7,12 +7,12 @@
 //! `UIApplicationMain`, and the notification blocks on the main queue. What
 //! this writes on stderr is one `TAWARA` line per fact, never a secret.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use block2::RcBlock;
 use objc2::rc::Retained;
@@ -23,16 +23,26 @@ use objc2_foundation::{
     NSNumber, NSOperationQueue, NSString, NSURL, NSURLIsExcludedFromBackupKey,
 };
 use objc2_ui_kit::{
-    UIActivityViewController, UIApplication, UIApplicationDidBecomeActiveNotification,
-    UIApplicationDidEnterBackgroundNotification, UIApplicationWillResignActiveNotification,
-    UIBackgroundTaskInvalid, UIColor, UIPasteboard, UIView, UIViewAutoresizing,
+    UIActivityTypeCopyToPasteboard, UIActivityViewController, UIApplication,
+    UIApplicationDidBecomeActiveNotification, UIApplicationDidEnterBackgroundNotification,
+    UIApplicationWillResignActiveNotification, UIBackgroundTaskInvalid, UIColor, UIPasteboard,
+    UIView, UIViewAutoresizing, UIWindow,
 };
 use tawara_app::Host;
 
 thread_local! {
     /// The cover over the window while the application is not active.
     static COVER: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
+    /// The share sheet UIKit has been asked for and has not shown yet: its
+    /// number and when it was asked for.
+    static OPENING: Cell<Option<(u64, Instant)>> = const { Cell::new(None) };
+    /// The number of the last share sheet asked for.
+    static SHEETS: Cell<u64> = const { Cell::new(0) };
 }
+
+/// How long a share sheet may take to open before it is taken as one that
+/// UIKit refused. On the simulator it opens within a second.
+const OPENING_LIMIT: Duration = Duration::from_secs(5);
 
 /// Start the application. Never returns: winit's `UIApplicationMain` ends
 /// the process.
@@ -146,12 +156,11 @@ fn copy(text: &str) {
 /// The share sheet, through `UIActivityViewController` (docs/DECISIONS.md D32
 /// item 10 (i)). `name` is not shown: UIKit's sheet takes the text itself, and
 /// a subject would need an item provider that the shell does not write (D4).
-/// `Ok` says only that the sheet was presented; the application cannot learn
-/// what was done with it.
+/// The application cannot learn what was done with the sheet.
 fn share(_name: &str, text: &str) -> Result<(), String> {
     let result = present_share(text);
     match &result {
-        Ok(()) => eprintln!("TAWARA share: sheet shown"),
+        Ok(()) => eprintln!("TAWARA share: sheet asked for"),
         Err(error) => eprintln!("TAWARA share: {error}"),
     }
     result
@@ -160,12 +169,31 @@ fn share(_name: &str, text: &str) -> Result<(), String> {
 /// Presents the sheet from the top of the key window's controllers, the same
 /// window `cover` covers. The app is iPhone only (UIDeviceFamily 1), so there
 /// is no popover to anchor the sheet to.
+///
+/// `UIActivityViewController` puts off its own presentation until its content
+/// is ready, so nothing UIKit offers says at once whether the sheet will be
+/// shown: its presenting controller is set some hundreds of milliseconds
+/// later, and a refused presentation is only a console warning. So the
+/// refusals that can be known are checked first, and the one met in practice,
+/// a second sheet asked for while the first is still opening (Save artifact
+/// pressed twice), is refused here rather than by UIKit, so that the wallet
+/// does not say a sheet was opened when it was not (D32 item 10 (i)). The
+/// presentation's completion clears that state and logs that the sheet was
+/// shown.
 fn present_share(text: &str) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
+    if let Some((_, asked)) = OPENING.get() {
+        if asked.elapsed() < OPENING_LIMIT {
+            return Err("the share sheet is still opening".to_owned());
+        }
+        eprintln!("TAWARA share: the last sheet was never shown");
+        OPENING.set(None);
+    }
     // SAFETY: UIKit calls on the main thread with valid objects. The items are
     // made here; the window and its controllers are UIKit's own, read on the
     // main thread, and the sheet is presented on the top one, as a modal sheet
-    // is.
+    // is. The completion block is called on the main thread, where `OPENING`
+    // lives.
     unsafe {
         let item: Retained<AnyObject> =
             Retained::into_super(Retained::into_super(NSString::from_str(text)));
@@ -175,19 +203,54 @@ fn present_share(text: &str) -> Result<(), String> {
             &items,
             None,
         );
-        #[allow(deprecated)]
-        let window = UIApplication::sharedApplication(mtm)
-            .keyWindow()
-            .ok_or("no key window")?;
+        // The sheet's own Copy would put the signed bytes on the general
+        // pasteboard with neither the local-only flag nor the expiry that D32
+        // items 9 (d) and 10 (j) ask of every copy, and which belong in
+        // `copy`, so it is left out: the wallet's own Copy is the one way to
+        // the pasteboard.
+        let excluded = NSArray::from_vec(vec![UIActivityTypeCopyToPasteboard.copy()]);
+        sheet.setExcludedActivityTypes(Some(&excluded));
+        let window = key_window(mtm).ok_or("no key window")?;
         let mut top = window
             .rootViewController()
             .ok_or("no root view controller")?;
         while let Some(presented) = top.presentedViewController() {
             top = presented;
         }
-        top.presentViewController_animated_completion(&sheet, true, None);
+        if top.isBeingPresented() || top.isBeingDismissed() {
+            return Err("another screen is still opening or closing".to_owned());
+        }
+        if !top
+            .viewIfLoaded()
+            .is_some_and(|view| view.window().is_some())
+        {
+            return Err("the app's view is not on screen".to_owned());
+        }
+        let number = SHEETS.get() + 1;
+        SHEETS.set(number);
+        OPENING.set(Some((number, Instant::now())));
+        let shown = RcBlock::new(move || {
+            if OPENING.get().is_some_and(|(opening, _)| opening == number) {
+                OPENING.set(None);
+            }
+            eprintln!("TAWARA share: sheet shown");
+        });
+        top.presentViewController_animated_completion(&sheet, true, Some(&shown));
     }
     Ok(())
+}
+
+/// The key window. `keyWindow` is deprecated because it picks one key window
+/// across all of an application's connected scenes; Tawara has one scene
+/// (`UIApplicationSupportsMultipleScenes` is false in platform/ios's
+/// Info.plist.in) and is iPhone only (UIDeviceFamily 1), so there is only one
+/// window it could pick.
+fn key_window(mtm: MainThreadMarker) -> Option<Retained<UIWindow>> {
+    // SAFETY: a UIKit call on the main thread.
+    #[allow(deprecated)]
+    unsafe {
+        UIApplication::sharedApplication(mtm).keyWindow()
+    }
 }
 
 /// `UIApplication`'s notices, on the main queue. winit hears them too, and two
@@ -240,8 +303,7 @@ fn cover(mtm: MainThreadMarker) {
         }
         // SAFETY: UIKit calls on the main thread with valid objects.
         unsafe {
-            #[allow(deprecated)]
-            let window = UIApplication::sharedApplication(mtm).keyWindow();
+            let window = key_window(mtm);
             // The window is shown only in a window scene, which the iced
             // fork puts it in (D32 item 8); read back from UIKit for
             // platform/ios/tawara.sh's check.
