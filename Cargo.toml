@@ -27,16 +27,13 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At 389f731: Tawara-wallet's `main` at pull request #20's merge commit, the
-# paste and sharing work. D32 item 9 (c) asks for the pin to name that commit
-# once #20 merges. Under it are the move to the fork's release v0.14.1-mobile.2
-# (#18) and the phone layout (#19), which added `Host::share` for Save
-# artifact's share sheet (D32 item 10 (i)). At #19's merge commit, 64e14cb,
-# that `share` returned nothing; #20 changed it to return `Result<(), String>`,
-# which the shells implement, so they build against this commit and not
-# against 64e14cb. It replaces the pin at 4ce2550, an earlier commit on #20,
-# from before the review fixes that c0ea890 merged into the branch.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "389f7317578dd1b28a0127d3e7b2bb87e2725d16" }
+# At 80292d2: Tawara-wallet's `main` at pull request #23's merge commit. #23
+# carries the owner's share-sheet decisions of 2026-10-13 (D32 item 10 (i)),
+# and `Host::share` returns `Result<(), String>`, where `Ok` means the platform
+# was asked to show the sheet, not that it was shown. D32 item 9 (c) asks for
+# the pin to name that commit once #23 merges. It replaces the pin at 389f731,
+# Tawara-wallet's `main` at pull request #20's merge commit.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "80292d2c3c279ec61e0fa950ab3fa317a44e57eb" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
