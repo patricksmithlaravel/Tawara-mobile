@@ -10,14 +10,14 @@ repository.workspace = true
 [lib]
 # Android loads this crate as `libtawara_mobile.so`, built with
 # `cargo rustc --crate-type cdylib` for each Android target
-# (platform/android/build.sh), so the workspace's own builds make no shared
-# library they do not need.
+# (`platform/android/tawara.sh build`), so the workspace's own builds make no
+# shared library they do not need.
 crate-type = ["lib"]
 
 [[bin]]
 # iOS: the app bundle's executable. winit calls `UIApplicationMain` from it,
-# so it must be the process's `main` (docs/spikes/P1-REPORT.md). Elsewhere it
-# says it is for iOS and stops.
+# so it must be the process's `main` (Tawara-wallet's
+# docs/spikes/P1-REPORT.md). Elsewhere it says it is for iOS and stops.
 name = "tawara"
 path = "src/main.rs"
 
@@ -25,8 +25,10 @@ path = "src/main.rs"
 tawara-app.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
+# winit is not named here: the fork's copy comes through `iced_winit`, as
+# `iced_winit::winit`, and a crates.io winit beside it would be a second copy
+# of winit in the build (D32 item 9 (b)).
 iced_winit.workspace = true
-winit.workspace = true
 jni.workspace = true
 ndk-context.workspace = true
 

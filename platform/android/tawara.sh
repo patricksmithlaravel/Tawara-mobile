@@ -7,7 +7,8 @@
 #
 # No Java, Kotlin or Gradle: the activity is android.app.NativeActivity, the
 # APK is linked with aapt2 and zipped, aligned and signed by hand, as phase
-# 1's spike was (docs/spikes/P1-REPORT.md). A release key is phase 5's.
+# 1's spike was (Tawara-wallet's docs/spikes/P1-REPORT.md). A release key is
+# phase 5's.
 #
 # The application prints `TAWARA ...` lines on stderr, which android-activity
 # sends to logcat under the tag RustStdoutStderr; the exit line it writes to

@@ -9,8 +9,8 @@
 #
 # There is no Xcode project: the bundle is crates/mobile's `tawara` binary
 # and an Info.plist made from Info.plist.in, as phase 1's spike was
-# (docs/spikes/P1-REPORT.md). Signing for a device and the store
-# (`com.apple.developer.default-data-protection`) is phase 5's.
+# (Tawara-wallet's docs/spikes/P1-REPORT.md). Signing for a device and the
+# store (`com.apple.developer.default-data-protection`) is phase 5's.
 #
 # The application's stderr goes to the file `simctl launch --stderr` names:
 # `TAWARA ...` lines, never a secret. This script prints `CHECK PASS|FAIL
@@ -75,6 +75,28 @@ wait_after() { # wait_after FILE LINE ERE SECONDS: the first match after line LI
   done
 }
 shot() { xcrun simctl io "$UDID" screenshot --type=png "$OUT/shots/$1.png" >/dev/null 2>&1 || true; }
+# wait_pasteboard UDID: the text on the simulator's pasteboard, read every
+# quarter of a second for about five seconds until there is some. The test
+# prints `copied` once it has made the copy, but the pasteboard that
+# `simctl pbpaste` reads can take a moment to show it, and one read straight
+# after that line found it empty on a CI run. The copy lasts two minutes
+# (PASTEBOARD_LIFETIME), so the window cannot outlast it. A failed read is
+# tried again like an empty one, but the status of the last read is returned,
+# so that a read that still fails at the end is reported as a failed read and
+# not as an empty pasteboard.
+wait_pasteboard() {
+  local i=0 text status
+  while :; do
+    status=0
+    text=$(xcrun simctl pbpaste "$1" 2>/dev/null) || status=$?
+    if [ "$status" -eq 0 ] && [ -n "$text" ]; then break; fi
+    [ "$i" -ge 20 ] && break
+    sleep 0.25
+    i=$((i + 1))
+  done
+  printf '%s' "$text"
+  return "$status"
+}
 
 simulator() {
   xcodebuild -version
@@ -159,10 +181,12 @@ PY
   # Neither mode shows an access control list, which can let others in
   # whatever the mode says. ls -e prints each entry on a line of its own
   # below the folder's, so the folder has none when ls prints one line; the
-  # backup attribute adds only an @ to that line.
-  local acl
-  acl=$(ls -lde "$dir" | tr '\n' ' ')
-  check dir.acl "$acl" test "$(ls -lde "$dir" | wc -l)" -eq 1
+  # backup attribute adds only an @ to that line. Both reads are arguments of
+  # the check, not assignments, so that a folder ls cannot read fails this
+  # check rather than stopping the script under set -e and losing the checks
+  # after it.
+  check dir.acl "$(ls -lde "$dir" 2>&1 | tr '\n' ' ' || true)" \
+    test "$(ls -lde "$dir" 2>/dev/null | wc -l)" -eq 1
   endgroup
 
   group "to the background and back"
@@ -223,9 +247,14 @@ for line in sys.stdin:
     --nocapture --test-threads=1 >"$clip" 2>&1 &
   clip_pid=$!
   copied=$(wait_after "$clip" 0 '^TAWARA clipboard check: copied$' 120 || true)
-  pasted=$(xcrun simctl pbpaste "$UDID" 2>/dev/null || true)
   check clipboard.copied "${copied:-no copy line}" test -n "$copied"
-  check clipboard.on_pasteboard "pasteboard: '$pasted'" test "$pasted" = tawara-copy-check
+  # As for the expiry below, a failed read must not be reported as an empty
+  # pasteboard.
+  if pasted=$(wait_pasteboard "$UDID"); then
+    check clipboard.on_pasteboard "pasteboard: '$pasted'" test "$pasted" = tawara-copy-check
+  else
+    record clipboard.on_pasteboard FAIL "simctl pbpaste failed"
+  fi
   # The test ends a second after the lifetime; one that hangs is ended here,
   # so the job does not wait for its own timeout and the kill fails
   # clipboard.test.
@@ -238,7 +267,9 @@ for line in sys.stdin:
   check clipboard.test "test exit $status" test "$status" = 0
   # The test's assertions on the options are part of this result.
   check clipboard.ran "$(grep -o 'test result: .*' "$clip" | head -1)" grep -q 'test result: ok. 1 passed' "$clip"
-  # A failed read must not pass for an empty pasteboard.
+  # The test waits out the copy's lifetime before it exits, so by now the copy
+  # has expired, however long the read above took. A failed read must not pass
+  # for an empty pasteboard.
   if after=$(xcrun simctl pbpaste "$UDID" 2>/dev/null); then
     check clipboard.expired "pasteboard after its lifetime: '$after'" test -z "$after"
   else

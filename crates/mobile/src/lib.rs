@@ -27,9 +27,10 @@ pub mod android;
 pub mod ios;
 
 /// The Android entry point: android-activity calls it on its own thread
-/// once the activity is created.
+/// once the activity is created. Its `AndroidApp` is the fork's winit's,
+/// through `iced_winit`, the one copy of winit in the build (D32 item 9 (b)).
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-fn android_main(app: winit::platform::android::activity::AndroidApp) {
+fn android_main(app: iced_winit::winit::platform::android::activity::AndroidApp) {
     android::main(app);
 }

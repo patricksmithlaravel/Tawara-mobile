@@ -4,19 +4,21 @@
 //! The activity is `android.app.NativeActivity` (platform/android). JNI
 //! reaches the platform's classes through the `Application` that
 //! android-activity registers with `ndk-context`, as phase 1's spike did
-//! (docs/spikes/P1-REPORT.md). What this writes on stderr, and the exit
-//! line written directly, goes to logcat under the tag `RustStdoutStderr`,
-//! one `TAWARA` line per fact, never a secret.
+//! (Tawara-wallet's docs/spikes/P1-REPORT.md). What this writes on stderr,
+//! and the exit line written directly, goes to logcat under the tag
+//! `RustStdoutStderr`, one `TAWARA` line per fact, never a secret.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
+// winit is the fork's vendored copy, reached through iced_winit so that the
+// build holds one copy of it (D32 item 9 (b)).
+use iced_winit::winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 use jni::objects::{JObject, JString, JValue};
 use jni::vm::JavaVM;
 use jni::{jni_sig, jni_str};
 use tawara_app::{Host, Leaving};
-use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 /// The activity, for Back.
 static APP: OnceLock<AndroidApp> = OnceLock::new();
@@ -50,16 +52,18 @@ pub fn main(app: AndroidApp) {
     // Asked without waiting, so the line shows whether the lock is finished
     // when the process ends (D32 item 9).
     log_exit(lock_state());
-    // winit allows one event loop per process: a second `android_main` here
-    // could not run one, so the process ends with this one.
+    // The process ends with this one, so the next launch starts cold (D32
+    // item 9 (d)). The fork's winit allows a second event loop once this one
+    // is dropped, but a second `android_main` here would need the Activity's
+    // handles, the host statics and FLAG_SECURE built again, for a rare event.
     std::process::exit(0);
 }
 
 /// `no_backup/`, beside `files/`: the system leaves it out of Auto Backup
 /// and device transfer, and the manifest's rules exclude the rest (D21,
 /// D32 item 7). `files/` itself is mode `0771`, which the library refuses
-/// for a store's parent (docs/spikes/P1-REPORT.md, A19); `no_backup/` is
-/// made `0700` when the system has not made it yet.
+/// for a store's parent (Tawara-wallet's docs/spikes/P1-REPORT.md, A19);
+/// `no_backup/` is made `0700` when the system has not made it yet.
 fn private_dir(app: &AndroidApp) -> Option<PathBuf> {
     let files = app.internal_data_path()?;
     let dir = files.parent()?.join("no_backup");
@@ -125,7 +129,8 @@ fn copy(text: &str) {
 
 /// Back: move the task to the background, as Android 12 and later do
 /// themselves for a launcher's first activity, keeping the activity and
-/// winit's event loop (docs/spikes/P1-REPORT.md, A14 and A18).
+/// winit's event loop (Tawara-wallet's docs/spikes/P1-REPORT.md, A14 and
+/// A18).
 fn back() {
     let Some(app) = APP.get() else {
         return;

@@ -140,12 +140,12 @@ fn ns_path(path: &Path) -> Retained<NSString> {
 /// copied destination or transaction does not linger.
 const PASTEBOARD_LIFETIME: Duration = Duration::from_secs(120);
 
-/// The pasteboard: iced's clipboard is a stub on iOS
-/// (docs/spikes/P1-REPORT.md). A copy is local to this device, so it does not
-/// reach the person's other devices, and it expires after
-/// `PASTEBOARD_LIFETIME`, so it does not stay on the pasteboard. A destination
-/// or a signed spend is not secret, but it should not linger or sync
-/// (docs/DECISIONS.md D32 item 9 (d) and item 10).
+/// The pasteboard. iced's clipboard writes the same pasteboard at the pin, but
+/// with no protection, so this write stays Tawara's: a copy is local to this
+/// device, so it does not reach the person's other devices, and it expires
+/// after `PASTEBOARD_LIFETIME`, so it does not stay on the pasteboard. A
+/// destination or a signed spend is not secret, but it should not linger or
+/// sync (docs/DECISIONS.md D32 item 9 (d) and item 10).
 fn copy(text: &str) {
     // The uniform type identifier of plain UTF-8 text.
     const TEXT: &str = "public.utf8-plain-text";
@@ -190,9 +190,11 @@ fn pasteboard_options() -> Retained<NSDictionary<NSString, AnyObject>> {
     }
 }
 
-/// `UIApplication`'s notices, on the main queue. winit hears them too, but
-/// iced passes none of them to the application (docs/spikes/P1-REPORT.md,
-/// I6). The observers live as long as the process.
+/// `UIApplication`'s notices, on the main queue. winit hears them too, and two
+/// of them reach iced as `Suspended` and `Resumed` events, which iced passes
+/// on through `on_lifecycle` and `lifecycle()`. Tawara uses neither on iOS (D32
+/// item 9 (d)), so these observers act on the notices. The observers live as
+/// long as the process.
 fn observe(mtm: MainThreadMarker) {
     type Notice = (&'static NSNotificationName, fn(MainThreadMarker));
     // SAFETY: the notification names are UIKit's own constants.
