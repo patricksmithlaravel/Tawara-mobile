@@ -15,7 +15,9 @@
 # sends to logcat under the tag RustStdoutStderr; the exit line it writes to
 # logcat directly, under the same tag. This script prints
 # `CHECK PASS|FAIL <name>: <detail>` lines and a table in the step summary,
-# and fails if any check failed.
+# and fails if any check failed. A count that is reported and not gated is
+# printed as `CHECK NOTE <name>: <detail>`: it is in the table, and it never
+# fails the job (exit.lock; D32 item 9 (j)).
 set -Eeuo pipefail
 
 PKG=com.patricksmithlaravel.tawara
@@ -129,7 +131,7 @@ apk() {
 a() { adb -s "$SERIAL" "$@"; }
 ash() { adb -s "$SERIAL" shell "$@" | tr -d '\r'; }
 
-record() { # record NAME PASS|FAIL DETAIL
+record() { # record NAME PASS|FAIL|NOTE DETAIL
   printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}" >>"$OUT/results.tsv"
   echo "CHECK $2 $1: ${3:-}"
 }
@@ -655,8 +657,14 @@ on_emulator() {
   # application started again in the window. Without that destroy, Back only
   # backgrounds the activity, and a process that stays alive would look like an
   # exit that did not happen. exit.destroyed counts the destroys on their own,
-  # so that 'not destroyed' and 'destroyed, but the lock not done' fail under
-  # different checks.
+  # so that 'not destroyed' and 'destroyed, but the lock not done' are told
+  # apart: the first fails exit.destroyed, and the second is reported on
+  # exit.lock. exit.lock is a count, not a gate (D32 item 9 (j), owner,
+  # 2026-10-13; Tawara-wallet #25). The lock's Leaving completes only inside
+  # App::update, so a Destroy that comes within about 100 ms of going to the
+  # background ends the process before the lock is done (1 in 15 local runs,
+  # and on CI). Ending the process leaves no secret held by a running process,
+  # and the library's store writes are atomic.
   local m0 mr kept runtime restored state alive runs=5 run rpid line suspended exit_line gone aborted
   local pids="" started=0 locked=0 finished=0 ended=0 destroyed=0
   m0=$(mark)
@@ -733,7 +741,9 @@ on_emulator() {
     test "$destroyed" = "$runs"
   check exit.locks "$locked of $runs runs logged the lock after Back (only destroyed runs count)" test "$locked" = "$runs"
   check exit.ended "$ended of $runs processes ended after Back (only destroyed runs count)" test "$ended" = "$runs"
-  check exit.lock "$finished of $runs runs: TAWARA exit: lock done (only destroyed runs count)" test "$finished" = "$runs"
+  # Reported, not gated (D32 item 9 (j)): a NOTE, which does not fail the job.
+  # The other exit checks still gate.
+  record exit.lock NOTE "$finished of $runs runs: TAWARA exit: lock done (only destroyed runs count; reported, not gated: D32 item 9 (j))"
   # The count first, since the lines themselves are cut short for the table.
   aborted=$(printf '%s\n' "$aborted" | grep -v '^$' || true)
   local naborts

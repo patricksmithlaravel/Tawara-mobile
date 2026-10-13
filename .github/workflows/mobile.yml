@@ -23,9 +23,11 @@
 # rules, the eighteen configuration changes of API 35 (D32 item 9), and the
 # iOS bundle the scene manifest; and, on the x86_64 emulator, that with
 # 'Don't keep activities' on the framework destroys the activity after Back,
-# and the lock is done when the process then exits (D32 item 9). Nothing here
-# checks the Android copy's sensitive mark, since no emulator check makes a
-# copy. It says nothing about a real phone, which the owner checks (D32 item 2).
+# and the process then ends, without an abort (D32 item 9). Whether the lock
+# is done by then is reported as a count and does not fail the job (D32 item
+# 9 (j); Tawara-wallet #25). Nothing here checks the Android copy's sensitive
+# mark, since no emulator check makes a copy. It says nothing about a real
+# phone, which the owner checks (D32 item 2).
 
 name: mobile
 
