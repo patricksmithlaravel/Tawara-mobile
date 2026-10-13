@@ -27,25 +27,14 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At f095432: a commit on Tawara-wallet#17's branch `work/iced-mobile-move`,
-# not that branch's head (267811c). f095432 is Tawara-wallet's `main` at
-# 38dd452 with the first three commits of pull request #16 and the first four
-# of #17 on top (D32 item 9); #16's fourth commit, bc5a302, changes only
-# docs/DECISIONS.md. #16 records the owner's decisions and adds the guard that
-# keeps Return from broadcasting on phones and a Linux start-up check in CI;
-# #17 moves the wallet's iced to the fork's release v0.14.1-mobile.2. 38dd452
-# carries pull requests #13 (phase 4 (a)) and #15: `run_in(Host)` and
-# `left_foreground`, which the shells call; the wipe of whatever secret is
-# typed when the app leaves the foreground, before any further input; the
-# `Leaving` the iOS shell waits on, done when the interface has taken the
-# worker's answer to the move, or its `Stopped`, which comes after the queued
-# commands are dropped; and stores kept inside the private folder (D32 items 6
-# and 7). #16 is on `main` (4c4c7d6). #17 merged into its base,
-# `work/iced-mobile-prep`, not into `main`, so the move reaches `main` through
-# Tawara-wallet pull request #18 (`work/iced-move-to-main`). Before this PR
-# leaves draft, the pin moves to #18's merge commit on `main`, by full hash,
-# as D32 item 9 (c) asks; the rev stays f095432 until then.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "f095432ed0e4143e186834041fac07bb71fd4732" }
+# At 9cfeefa: Tawara-wallet pull request #18's merge commit on `main`, which
+# D32 item 9 (c) asks the pin to name. It carries the move to the owner's iced
+# fork at v0.14.1-mobile.2, and it contains f095432, the commit this line
+# named before. `main`'s later head, 64e14cb (pull request #19), adds the
+# required `Host::share`, which this shell does not set, so it does not build
+# against that head. Tawara-mobile pull request #8 provides `share` and moves
+# the pin on.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "9cfeefaefbe9497bfda9b1032b2ee397a3297d56" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
