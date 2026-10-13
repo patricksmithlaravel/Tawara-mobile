@@ -158,8 +158,10 @@ const PASTEBOARD_LIFETIME: Duration = Duration::from_secs(120);
 /// with no protection, so this write stays Tawara's: a copy is local to this
 /// device, so it does not reach the person's other devices, and it expires
 /// after `PASTEBOARD_LIFETIME`, so it does not stay on the pasteboard. A
-/// destination or a signed spend is not secret, but it should not linger or
-/// sync (docs/DECISIONS.md D32 item 9 (d) and item 10).
+/// destination is not secret, but it should not linger or sync. A signed
+/// spend is held to that same rule because these are the only bytes that can
+/// move these funds while the reservation is open (docs/DECISIONS.md D32
+/// item 9 (d) and item 10).
 fn copy(text: &str) {
     // The uniform type identifier of plain UTF-8 text.
     const TEXT: &str = "public.utf8-plain-text";
@@ -230,7 +232,8 @@ fn share(_name: &str, text: &str) -> Result<(), String> {
 /// presented one was set; the sheet was shown 0.6 to 2.4 s later. A second
 /// sheet presented while the first was still waiting was refused by UIKit
 /// with only a console message ("Attempt to present ... which is waiting for
-/// a delayed presentation"), and its completion was never called.
+/// a delayed presention", as UIKit spells it), and its completion was never
+/// called.
 ///
 /// So the refusals that can be known are checked first, and that second
 /// sheet, which Save artifact pressed twice would ask for, is refused here
