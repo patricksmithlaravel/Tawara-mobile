@@ -25,9 +25,12 @@
 # 'Don't keep activities' on the framework destroys the activity after Back,
 # and the process then ends, without an abort (D32 item 9). Whether the lock
 # is done by then is reported as a count and does not fail the job (D32 item
-# 9 (j); Tawara-wallet #25). Nothing here checks the Android copy's sensitive
-# mark, since no emulator check makes a copy. It says nothing about a real
-# phone, which the owner checks (D32 item 2).
+# 9 (j); Tawara-wallet #25). The committed THIRD-PARTY-NOTICES.txt is the
+# file ci/notices.sh writes, byte for byte (Tawara-wallet's D35). A green run
+# does not say that the notices are in the app bundles, which is packaging work
+# (the README says so). Nothing here checks the Android copy's sensitive mark,
+# since no emulator check makes a copy. It says nothing about a real phone,
+# which the owner checks (D32 item 2).
 
 name: mobile
 
@@ -53,10 +56,10 @@ env:
 jobs:
   check:
     # The workspace on the host: formatting, clippy for the host and both iOS
-    # targets, the policy test (crates/mobile/tests/policy.rs) and
-    # cargo-deny, built from crates.io at a pinned version as Tawara-wallet's
-    # ci.yml does. The Android targets need the NDK, so their clippy is the
-    # android job's build.
+    # targets, the policy test (crates/mobile/tests/policy.rs), cargo-deny and
+    # the third-party notices. The two tools are built from crates.io at pinned
+    # versions, cargo-deny as Tawara-wallet's ci.yml builds it. The Android
+    # targets need the NDK, so their clippy is the android job's build.
     name: check
     runs-on: macos-26
     timeout-minutes: 60
@@ -94,6 +97,23 @@ jobs:
           cargo install --quiet --locked cargo-deny --version 0.20.2
           cargo deny --version
           cargo deny --locked check
+
+      - name: Third-party notices match the generator
+        # cargo-about 0.9.2 from crates.io at a pinned version, installed as
+        # cargo-deny is above (D13). There is no cache, so the step builds the
+        # tool cold on every run, as D13 accepts for the job: "a cold build on
+        # every run". ci/notices.sh refuses any other version, regenerates the
+        # notices and fails the step, with a diff and the command that
+        # regenerates them, on one differing byte: the committed
+        # THIRD-PARTY-NOTICES.txt has to be what the generator writes
+        # (Tawara-wallet's D35). The generator fetches the licence files
+        # about.toml pins from raw.githubusercontent.com, so the step needs the
+        # network, as the clone and the install do.
+        run: |
+          cd "$TAWARA"
+          cargo install --quiet --locked --features cli cargo-about --version 0.9.2
+          cargo about --version
+          bash ci/notices.sh --check
 
   android:
     name: android, emulator

@@ -31,9 +31,12 @@ them. D32 is the mobile shells; D33 is why they live here.
 crates/
   mobile/        the tawara-mobile crate: the Android library and the iOS binary
     tests/       the policy test
+ci/
+  notices.sh     writes THIRD-PARTY-NOTICES.txt, which CI compares with the committed file
 platform/
   android/       manifest, backup rules, build and check script
   ios/           Info.plist, build and check script
+about.toml, THIRD-PARTY-NOTICES.hbs, THIRD-PARTY-NOTICES.txt   the notices (below)
 .github/workflows/mobile.yml   the checks, the emulator and the simulators
 ```
 
@@ -65,6 +68,40 @@ platform/ios/tawara.sh simulator   # bundle, boot a simulator, run the checks
 
 CI runs all of these (`.github/workflows/mobile.yml`), with no third-party
 actions (D13).
+
+## Third-party notices
+
+`THIRD-PARTY-NOTICES.txt` lists the crates the Android and iOS builds carry,
+each with its licence text, and ends with the Mochimo licence from
+`LICENSE.md`. It is generated with cargo-about 0.9.2, not written by hand:
+
+```
+cargo install --locked --features cli cargo-about --version 0.9.2
+bash ci/notices.sh            # write THIRD-PARTY-NOTICES.txt
+bash ci/notices.sh --check    # what CI runs: fail, with a diff, if it differs
+```
+
+`about.toml` names the licences the notices accept, the targets they
+describe, and the licence files that name each crate's copyright holders where
+cargo-about would not find them; some are fetched from the crate's repository,
+so generating the file needs the network. `THIRD-PARTY-NOTICES.hbs` is their
+layout. `ci/notices.sh` removes carriage returns and the standard MIT text's
+template line for the holder, and appends `LICENSE.md`, because cargo-about
+0.9.2 does not write that licence's text. The check job in
+`.github/workflows/mobile.yml` regenerates the file and fails on a single
+differing byte, and `crates/mobile/tests/policy.rs` holds `about.toml` to the
+licences `deny.toml` admits and to the targets the platform scripts build. Why
+the file is committed and checked, and not uploaded, is Tawara-wallet's
+`docs/DECISIONS.md` D35.
+
+The notices do not reach the app bundles yet. That is packaging work for
+phase 5 (`docs/PLAN.md` section 6). The APK must carry the file as
+`assets/THIRD-PARTY-NOTICES.txt`, which `platform/android/tawara.sh apk` does not
+do today, since it zips only the libraries. The iOS app bundle must carry it at
+its root, which `platform/ios/tawara.sh` does not do today, since it copies only
+the executable and `Info.plist`. Until packaging does both, no build made from
+this repository carries its notices. The known gaps in the notices, and the
+owner's decisions on them, are in Tawara-wallet's D35, item 6.
 
 ## Licence
 

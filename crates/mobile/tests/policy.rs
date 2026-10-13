@@ -17,7 +17,8 @@ const TAWARA_GIT: &str = "https://github.com/patricksmithlaravel/Tawara-wallet";
 const ICED_GIT: &str = "https://github.com/patricksmithlaravel/iced_mobile";
 
 /// The two Android targets the android job builds (platform/android/tawara.sh,
-/// run by .github/workflows/mobile.yml).
+/// run by .github/workflows/mobile.yml). `the_notices_describe_every_shipped_target`
+/// holds this list to the script's TARGETS.
 const ANDROID_TARGETS: [&str; 2] = ["aarch64-linux-android", "x86_64-linux-android"];
 
 /// Every dependency the mobile crate may name: the application and the
@@ -494,4 +495,247 @@ fn android_activity_has_the_native_activity_backend_only() {
              the native-activity backend and not the game-activity one"
         );
     }
+}
+
+/// The strings of a TOML array, in order. `what` names the array in a failure.
+fn string_list(value: &toml::Value, what: &str) -> Vec<String> {
+    value
+        .as_array()
+        .unwrap_or_else(|| panic!("{what} is not an array"))
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .unwrap_or_else(|| panic!("{what} holds a value that is not a string"))
+                .to_owned()
+        })
+        .collect()
+}
+
+/// The licences the notices may name beyond deny.toml's allow list, and the
+/// crate each is accepted for (Tawara-wallet's docs/DECISIONS.md D35, items 3
+/// and 6 (d)): the Mochimo licence for the library and Tawara's crates, which
+/// deny.toml admits for them by name, and OFL-1.1 for the fonts tawara-app
+/// bundles. tawara-app's code is under the Mochimo licence too, which deny.toml
+/// reads for it and ci/notices.sh appends; about.toml names the crate under
+/// OFL-1.1 so that the font licences are printed.
+const NOTICES_EXCEPTIONS: [(&str, &str); 4] = [
+    ("mochimo-crypto", "LicenseRef-Mochimo-Engine-1.0"),
+    ("tawara-wallet-core", "LicenseRef-Mochimo-Engine-1.0"),
+    ("tawara-mobile", "LicenseRef-Mochimo-Engine-1.0"),
+    ("tawara-app", "OFL-1.1"),
+];
+
+/// The notices accept exactly the licences the policy gate admits, and the
+/// named exceptions above, each for its own crate. `about.toml` accepts what
+/// `deny.toml` allows, the same ten identifiers (Tawara-wallet's
+/// docs/DECISIONS.md D35). The notices are generated from the graph that
+/// `deny.toml` checks, so a licence that `about.toml` accepts and `deny.toml`
+/// refuses would reach the notices without the gate having seen it, and one
+/// that `deny.toml` admits and `about.toml` does not would stop the generator
+/// for a crate the gate has already cleared. A per-crate `accepted` list widens
+/// the first list for its crate, so each one is held to NOTICES_EXCEPTIONS,
+/// and a new one fails here until the table says why.
+#[test]
+fn the_notices_accept_exactly_the_licences_the_policy_admits() {
+    let deny = read_toml(&root().join("deny.toml"));
+    let about = read_toml(&root().join("about.toml"));
+    let mut allowed = string_list(&deny["licenses"]["allow"], "deny.toml's [licenses] allow");
+    let mut accepted = string_list(&about["accepted"], "about.toml's accepted");
+    allowed.sort();
+    accepted.sort();
+    assert_eq!(
+        accepted, allowed,
+        "about.toml accepts {accepted:?}; deny.toml admits {allowed:?}"
+    );
+
+    let mut per_crate: Vec<(String, Vec<String>)> = about
+        .iter()
+        .filter_map(|(name, value)| {
+            let accepted = value.as_table()?.get("accepted")?;
+            Some((
+                name.clone(),
+                string_list(accepted, &format!("about.toml's [{name}] accepted")),
+            ))
+        })
+        .collect();
+    per_crate.sort();
+    let mut expected: Vec<(String, Vec<String>)> = NOTICES_EXCEPTIONS
+        .iter()
+        .map(|(name, licence)| ((*name).to_owned(), vec![(*licence).to_owned()]))
+        .collect();
+    expected.sort();
+    assert_eq!(
+        per_crate, expected,
+        "about.toml's per-crate accepted lists must be exactly NOTICES_EXCEPTIONS; a new \
+         exception is a decision for Tawara-wallet's docs/DECISIONS.md D35 first"
+    );
+}
+
+/// The Android targets platform/android/tawara.sh builds, read from its
+/// `TARGETS=(...)` line, in order.
+fn android_script_targets() -> Vec<String> {
+    let script = std::fs::read_to_string(root().join("platform/android/tawara.sh"))
+        .expect("platform/android/tawara.sh is committed");
+    let line = script
+        .lines()
+        .find_map(|line| line.strip_prefix("TARGETS=("))
+        .expect("platform/android/tawara.sh has a TARGETS=(...) line");
+    let list = line
+        .strip_suffix(')')
+        .expect("platform/android/tawara.sh's TARGETS=(...) fits on one line");
+    list.split_whitespace().map(str::to_owned).collect()
+}
+
+/// The target platform/ios/tawara.sh's `device` step builds, the iOS build
+/// that ships, read from its `cargo build ... --target` line.
+fn ios_device_target() -> String {
+    let script = std::fs::read_to_string(root().join("platform/ios/tawara.sh"))
+        .expect("platform/ios/tawara.sh is committed");
+    let body: Vec<&str> = script
+        .lines()
+        .skip_while(|line| *line != "device() {")
+        .take_while(|line| *line != "}")
+        .collect();
+    let builds: Vec<String> = body
+        .iter()
+        .filter(|line| line.trim_start().starts_with("cargo build "))
+        .filter_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let at = words.iter().position(|w| *w == "--target")?;
+            words.get(at + 1).map(|w| (*w).to_owned())
+        })
+        .collect();
+    assert_eq!(
+        builds.len(),
+        1,
+        "platform/ios/tawara.sh's device() should run one cargo build --target, and runs {builds:?}"
+    );
+    builds[0].clone()
+}
+
+/// The notices describe the graph of every shipped target and of no other:
+/// the Android ABIs that platform/android/tawara.sh builds into the APK, and
+/// the iOS device build of platform/ios/tawara.sh. Both are read from the
+/// scripts, so an ABI added there and not to about.toml fails here. A target
+/// left out would leave its crates out of the notices, and the byte comparison
+/// in CI would not notice, because the generator describes only the targets it
+/// is given (Tawara-wallet's docs/DECISIONS.md D35). ANDROID_TARGETS, which the
+/// other checks in this file use, is held to the script too.
+#[test]
+fn the_notices_describe_every_shipped_target() {
+    let android = android_script_targets();
+    assert_eq!(
+        android, ANDROID_TARGETS,
+        "platform/android/tawara.sh builds {android:?}; ANDROID_TARGETS says {ANDROID_TARGETS:?}"
+    );
+    let mut shipped: Vec<String> = android;
+    shipped.push(ios_device_target());
+    shipped.sort();
+
+    let about = read_toml(&root().join("about.toml"));
+    let mut targets = string_list(&about["targets"], "about.toml's targets");
+    targets.sort();
+    assert_eq!(
+        targets, shipped,
+        "about.toml describes {targets:?}; the platform scripts ship {shipped:?}"
+    );
+}
+
+/// The committed notices end with the Mochimo licence, byte for byte, as
+/// ci/notices.sh appends it. cargo-about 0.9.2 does not write the text of a
+/// LicenseRef licence, so the appended LICENSE.md is the only copy of that
+/// licence in the file (Tawara-wallet's docs/DECISIONS.md D35, item 3). The
+/// file names no path of the machine that generated it, since a path would
+/// show a builder's home directory to every reader. It holds no licence
+/// template's placeholder, which would read as a copyright notice naming
+/// nobody (item 6 (a)), and no carriage return, which ci/notices.sh removes
+/// (item 2).
+#[test]
+fn the_committed_notices_end_with_the_licence_and_name_no_build_path() {
+    let notices = std::fs::read(root().join("THIRD-PARTY-NOTICES.txt"))
+        .expect("THIRD-PARTY-NOTICES.txt is committed at the root");
+    let licence =
+        std::fs::read(root().join("LICENSE.md")).expect("LICENSE.md is committed at the root");
+    assert!(
+        notices.ends_with(&licence),
+        "THIRD-PARTY-NOTICES.txt does not end with LICENSE.md, byte for byte"
+    );
+    let text = String::from_utf8_lossy(&notices);
+    for marker in ["/Users/", "/home/", "/.cargo/"] {
+        assert!(
+            !text.contains(marker),
+            "THIRD-PARTY-NOTICES.txt names a path of the machine that generated it ({marker})"
+        );
+    }
+    let lower = text.to_lowercase();
+    for marker in ["<year>", "<copyright holders>", "<owner>"] {
+        assert!(
+            !lower.contains(marker),
+            "THIRD-PARTY-NOTICES.txt holds the licence template placeholder {marker}"
+        );
+    }
+    assert!(
+        !notices.contains(&b'\r'),
+        "THIRD-PARTY-NOTICES.txt holds a carriage return; ci/notices.sh removes them"
+    );
+}
+
+/// The crate versions that publish no text of their MIT licence, in their
+/// package or in their repository at the commit they were published from, and
+/// so are given the standard text without its template line for the holder
+/// (Tawara-wallet's docs/DECISIONS.md D35, item 6 (a); about.toml names them).
+/// A crate added to that entry, or a new version of one of these, has to be
+/// looked up again before it joins this list: it may publish a text that names
+/// its holder, which about.toml then has to take.
+const STANDARD_MIT_TEXT: [&str; 8] = [
+    "block 0.1.6",
+    "dispatch 0.2.0",
+    "objc2 0.6.4",
+    "objc2-core-foundation 0.3.2",
+    "objc2-core-graphics 0.3.2",
+    "objc2-encode 4.1.0",
+    "objc2-foundation 0.3.2",
+    "objc2-quartz-core 0.3.2",
+];
+
+/// The committed notices give the standard MIT text to the crates in
+/// STANDARD_MIT_TEXT and to no others (Tawara-wallet's docs/DECISIONS.md D35,
+/// item 6 (a)).
+#[test]
+fn only_the_listed_crates_get_the_standard_mit_text() {
+    let notices = std::fs::read_to_string(root().join("THIRD-PARTY-NOTICES.txt"))
+        .expect("THIRD-PARTY-NOTICES.txt is committed at the root");
+    let marker = "They publish none in their repository either";
+    let entries: Vec<&str> = notices
+        .split(
+            "\n================================================================================\n",
+        )
+        .filter(|entry| entry.contains(marker))
+        .collect();
+    assert_eq!(
+        entries.len(),
+        1,
+        "THIRD-PARTY-NOTICES.txt should have one standard MIT entry, and has {}",
+        entries.len()
+    );
+    let mut named: Vec<String> = entries[0]
+        .lines()
+        .skip_while(|line| *line != "Used by:")
+        .skip(1)
+        .take_while(|line| line.starts_with("  "))
+        .map(|line| {
+            line.split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    named.sort();
+    let mut expected: Vec<String> = STANDARD_MIT_TEXT.iter().map(|s| (*s).to_owned()).collect();
+    expected.sort();
+    assert_eq!(
+        named, expected,
+        "the crates given the standard MIT text are not STANDARD_MIT_TEXT; look each new one \
+         up in its repository first (Tawara-wallet's docs/DECISIONS.md D35, item 6 (a))"
+    );
 }
