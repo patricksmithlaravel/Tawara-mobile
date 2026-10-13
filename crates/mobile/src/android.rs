@@ -35,7 +35,11 @@ pub fn main(app: AndroidApp) {
     app.set_window_flags(WindowManagerFlags::SECURE, WindowManagerFlags::empty());
     let Some(private_dir) = private_dir(&app) else {
         eprintln!("TAWARA stop: the app-private directory could not be made");
-        std::process::exit(1);
+        // `_exit`, as at the end of this function: android-activity asks that
+        // `std::process::exit` not be called from `android_main` (D32 item 9
+        // (j)). No renderer has started here.
+        // SAFETY: `_exit` takes no pointer and does not return.
+        unsafe { libc::_exit(1) }
     };
     eprintln!("TAWARA start: private directory {}", private_dir.display());
     let _ = APP.set(app.clone());
@@ -51,8 +55,11 @@ pub fn main(app: AndroidApp) {
     }
     // Asked without waiting, so the line shows whether the lock is finished
     // when the process ends (D32 item 9). A wait here would not finish it:
-    // the interface takes the worker's answer only while the event loop runs,
-    // and the loop has ended with the Activity (D32 item 9 (j)).
+    // the interface takes the worker's answer only in its update, which runs
+    // while the event loop runs, and winit ends that loop when the Activity is
+    // destroyed, before run_in returns (D32 item 9 (j)). Finishing the lock
+    // after that needs a change in tawara-app, which this repository does not
+    // make.
     log_exit(lock_state());
     // The process ends with this one, so the next launch starts cold (D32
     // item 9 (d)). The fork's winit allows a second event loop once this one
