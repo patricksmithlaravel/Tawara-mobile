@@ -50,13 +50,21 @@ pub fn main(app: AndroidApp) {
         eprintln!("TAWARA stop: {error}");
     }
     // Asked without waiting, so the line shows whether the lock is finished
-    // when the process ends (D32 item 9).
+    // when the process ends (D32 item 9). A wait here would not finish it:
+    // the interface takes the worker's answer only while the event loop runs,
+    // and the loop has ended with the Activity (D32 item 9 (j)).
     log_exit(lock_state());
     // The process ends with this one, so the next launch starts cold (D32
     // item 9 (d)). The fork's winit allows a second event loop once this one
     // is dropped, but a second `android_main` here would need the Activity's
     // handles, the host statics and FLAG_SECURE built again, for a rare event.
-    std::process::exit(0);
+    // The process ends with `_exit`, not `exit`, because `exit` runs the C
+    // library's atexit handlers and the static destructors of the libraries
+    // in the process while the window's render threads still run. The
+    // emulator's exits aborted with SIGABRT in that state, bionic reporting a
+    // lock on a destroyed mutex (D32 item 9 (j)). `_exit` runs none of them.
+    // SAFETY: `_exit` takes no pointer and does not return.
+    unsafe { libc::_exit(0) }
 }
 
 /// `no_backup/`, beside `files/`: the system leaves it out of Auto Backup

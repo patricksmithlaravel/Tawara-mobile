@@ -31,6 +31,10 @@ tawara-app.workspace = true
 iced_winit.workspace = true
 jni.workspace = true
 ndk-context.workspace = true
+# The Android entry calls `_exit`, which ends the process without the C
+# library's exit handlers (D32 item 9 (j)). The policy test names libc among
+# the mobile crate's dependencies.
+libc.workspace = true
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2.workspace = true
