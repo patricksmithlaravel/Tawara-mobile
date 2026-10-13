@@ -5,8 +5,8 @@
 //! reaches the platform's classes through the `Application` that
 //! android-activity registers with `ndk-context`, as phase 1's spike did
 //! (Tawara-wallet's docs/spikes/P1-REPORT.md). What this writes on stderr,
-//! and the exit line written directly, goes to logcat under the tag
-//! `RustStdoutStderr`, one `TAWARA` line per fact, never a secret.
+//! and the exit and stop lines written directly, goes to logcat under the
+//! tag `RustStdoutStderr`, one `TAWARA` line per fact, never a secret.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -34,7 +34,9 @@ pub fn main(app: AndroidApp) {
     // thumbnail (D32 item 4). Before the first frame, so none is taken.
     app.set_window_flags(WindowManagerFlags::SECURE, WindowManagerFlags::empty());
     let Some(private_dir) = private_dir(&app) else {
-        eprintln!("TAWARA stop: the app-private directory could not be made");
+        // Written directly, as the exit line is: `_exit` follows at once (see
+        // `log_direct`).
+        log_direct("TAWARA stop: the app-private directory could not be made");
         // `_exit`, as at the end of this function: android-activity asks that
         // `std::process::exit` not be called from `android_main` (D32 item 9
         // (j)). No renderer has started here.
@@ -51,7 +53,7 @@ pub fn main(app: AndroidApp) {
         back,
     };
     if let Err(error) = tawara_app::run_in(host) {
-        eprintln!("TAWARA stop: {error}");
+        log_direct(&format!("TAWARA stop: {error}"));
     }
     // Asked without waiting, so the line shows whether the lock is finished
     // when the process ends (D32 item 9). A wait here would not finish it:
@@ -60,7 +62,7 @@ pub fn main(app: AndroidApp) {
     // destroyed, before run_in returns (D32 item 9 (j)). Finishing the lock
     // after that needs a change in tawara-app, which this repository does not
     // make.
-    log_exit(lock_state());
+    log_direct(&format!("TAWARA exit: {}", lock_state()));
     // The process ends with this one, so the next launch starts cold (D32
     // item 9 (d)). The fork's winit allows a second event loop once this one
     // is dropped, but a second `android_main` here would need the Activity's
@@ -120,14 +122,16 @@ fn lock_state() -> &'static str {
     }
 }
 
-/// Logs the exit with the lock's state. It goes to logcat directly, not
-/// through stderr: the thread that forwards stderr to logcat, in
-/// android-activity (`forward_stdio_to_logcat`), may not have read a line
-/// written just before `exit`, and then the line is lost. `Log.i` hands the
-/// line to logd before it returns (D32 item 9).
-fn log_exit(state: &str) {
-    if let Err(error) = log_line(&format!("TAWARA exit: {state}")) {
-        eprintln!("TAWARA exit: not logged: {error:?}");
+/// Logs a line the process writes just before it ends: the exit with the
+/// lock's state, or why it stopped. It goes to logcat directly, not through
+/// stderr: the thread that forwards stderr to logcat, in android-activity
+/// (`forward_stdio_to_logcat`), may not have read a line written just before
+/// `_exit`, and then the line is lost. `Log.i` hands the line to logd before
+/// it returns (D32 item 9). Should JNI fail, the line goes to stderr after
+/// all, with the reason, as the only way left to say it.
+fn log_direct(line: &str) {
+    if let Err(error) = log_line(line) {
+        eprintln!("{line} (not logged directly: {error:?})");
     }
 }
 
