@@ -72,6 +72,7 @@ objc2 = "0.5.2"
 block2 = "0.5.1"
 objc2-foundation = { version = "0.2.2", features = [
     "NSArray",
+    "NSDate",
     "NSDictionary",
     "NSError",
     "NSFileManager",

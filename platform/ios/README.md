@@ -17,10 +17,11 @@ What the Rust side does (`crates/mobile/src/ios.rs`): the store under
 `Library/Application Support/Tawara`, made mode `0700`, protected with
 `NSFileProtectionComplete` (D32 item 3) and excluded from iCloud and device
 backups with `NSURLIsExcludedFromBackupKey` (docs/PLAN.md section 4.5); the
-pasteboard; a cover over the key window whenever the application is not
-active, so the app switcher's snapshot shows nothing (section 4.3), or, if
-UIKit has no key window, no cover and a log line saying so, which fails the
-simulator check; the lock when it enters the background. Putting winit's
+pasteboard, where a copy is local to the device and expires after two
+minutes (D32 item 10); a cover over the key window whenever the application
+is not active, so the app switcher's snapshot shows nothing (section 4.3), or,
+if UIKit has no key window, no cover and a log line saying so, which fails
+the simulator check; the lock when it enters the background. Putting winit's
 window in the window scene UIKit connects is the iced fork's, since winit
 0.30 has no scene support of its own (D32 item 8); the app's part is the
 manifest.
