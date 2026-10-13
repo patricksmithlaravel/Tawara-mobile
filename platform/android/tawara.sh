@@ -4,7 +4,7 @@
 #   platform/android/tawara.sh build      # libtawara_mobile.so, arm64-v8a and x86_64
 #   platform/android/tawara.sh apk        # the APK, signed with a throwaway debug key
 #   platform/android/tawara.sh emulator   # boot an emulator, install, run the checks
-#   platform/android/tawara.sh selftest   # the crash parser, on logged lines
+#   platform/android/tawara.sh selftest   # the crash checks, on logged lines
 #
 # No Java, Kotlin or Gradle: the activity is android.app.NativeActivity, the
 # APK is linked with aapt2 and zipped, aligned and signed by hand, as phase
@@ -152,18 +152,20 @@ wait_log() { # wait_log MARK ERE SECONDS: prints the first matching application 
 }
 app_pid() { ash pidof "$PKG" || true; }
 resumed() { ash dumpsys activity activities | grep -m1 -E 'topResumedActivity=|ResumedActivity:' || true; }
-# crash_lines PID...: one line for each crash in the log since its start, as
-# 'own' or 'other', a tab, and what the log said. A crash whose process is
-# named is judged by that name alone: it is the application's when the name is
-# the package or one of the package's processes, and another process's
-# otherwise, even when its PID is one the application once had, because the
-# recorded PIDs span the reboot and another process can be given one of them.
-# A crash whose process is not named is the application's when its PID is one
-# the run recorded or one that wrote a TAWARA line in this log. The PIDs the
-# run recorded miss a process that was restarted, or one that died before its
-# PID was read, but such a process still wrote its TAWARA lines under its PID
-# if it got as far as its start. Any other unnamed crash is 'other', so that
-# another process's crash is not taken for the application's.
+# crash_lines FROM PID...: one line for each crash in the log after its line
+# FROM (0 for the whole log), as 'own' or 'other', a tab, and what the log said.
+# A crash whose process is named is judged by that name alone: it is the
+# application's when the name is one the application's process goes by, and
+# another process's otherwise, even when its PID is one the application once
+# had, because the recorded PIDs span the reboot and another process can be
+# given one of them. The manifest declares no android:process, so the
+# application has one process, named after the package. A crash whose process
+# is not named is the application's when its PID is one the run recorded or one
+# that wrote a TAWARA line in this log. The PIDs the run recorded miss a process
+# that was restarted, or one that died before its PID was read, but such a
+# process still wrote its TAWARA lines under its PID if it got as far as its
+# start. Any other unnamed crash is 'other', so that another process's crash is
+# not taken for the application's.
 #
 # AndroidRuntime writes the FATAL EXCEPTION line and the line that names its
 # process as one message, so the line right after a FATAL EXCEPTION belongs to
@@ -174,26 +176,31 @@ resumed() { ash dumpsys activity activities | grep -m1 -E 'topResumedActivity=|R
 # gives the thread as 'tid N (thread)' and the crashing process as 'pid N
 # (name)'. Its PID is read from there and not from the PID column, because the
 # line can be written by another process than the one that crashed. Its name is
-# the kernel's, which keeps 15 characters: the application's is 'hlaravel.tawara',
-# the tail of com.patricksmithlaravel.tawara, on API 36 (D32 item 9 (j)). So the
-# name is matched with the first or the last 15 characters of the package, and
-# never with the whole package, which such a line does not hold. The first 15 are
-# accepted too, since the logs here cannot show which 15 an older release keeps.
+# the kernel's, which keeps 15 characters. On the API 36 emulator the
+# application's was 'hlaravel.tawara', the last 15 characters of
+# com.patricksmithlaravel.tawara (D32 item 9 (j)), so such a name never holds
+# the whole package. The name is matched with the package, with its last 15
+# characters, and with each name the run read from /proc/PID/comm of the
+# application's own processes (COMMS, see note_comm), so that an image that
+# keeps other characters is matched by what it kept and not by a guess. Another
+# package whose name ends in the same 15 characters would be taken for the
+# application's, which can fail the check but never hide a crash.
 # A 'Fatal signal' that does not name its process is the exception to the rule
 # above: it is counted as the application's, since nothing shows that it belongs
-# to another process, and exit.no_sigabrt catches only the application's aborts,
-# and only from the first Back on. A Rust panic under the application's own tag
-# is the application's by that tag.
+# to another process. A Rust panic under the application's own tag is the
+# application's by that tag.
 crash_lines() {
-  awk -v pkg="$PKG" -v tag="$TAG" -v pids=" $* " '
+  local from=$1
+  shift
+  awk -v pkg="$PKG" -v tag="$TAG" -v pids=" $* " -v comms=" $COMMS " -v from="$from" '
     BEGIN {
       n = 0; pending = 0; panic = tag ": thread .* panicked"
       # The kernel name of the process: 15 characters (see above).
-      long = length(pkg) > 15
-      head = long ? substr(pkg, 1, 15) : pkg
-      tail = long ? substr(pkg, length(pkg) - 14) : pkg
+      tail = length(pkg) > 15 ? substr(pkg, length(pkg) - 14) : pkg
     }
     index($0, tag ": TAWARA ") { app[$3] = 1 }
+    # The lines up to FROM only say which PIDs wrote TAWARA lines.
+    NR <= from { next }
     index($0, "FATAL EXCEPTION") {
       pending = ++n
       text[n] = substr($0, index($0, "FATAL EXCEPTION"))
@@ -250,7 +257,7 @@ crash_lines() {
     { pending = 0 }
     END {
       for (i = 1; i <= n; i++) {
-        if (unknown[i] || name[i] == pkg || name[i] == head || name[i] == tail || index(name[i], pkg ":") == 1) mine = 1
+        if (unknown[i] || name[i] == pkg || name[i] == tail || (name[i] != "" && index(comms, " " name[i] " "))) mine = 1
         else if (name[i] != "") mine = 0
         else mine = (pid[i] != "" && ((pid[i] in app) || index(pids, " " pid[i] " ") > 0))
         s = text[i] where[i]
@@ -271,7 +278,7 @@ no_crash_check() {
     record no_crash FAIL "the log is empty or missing, so a crash cannot be ruled out"
     return 0
   fi
-  crashes=$(crash_lines "$@")
+  crashes=$(crash_lines 0 "$@")
   own=$(grep '^own' <<<"$crashes" | cut -f2- | head -3 | tr '\n' ' ' || true)
   other=$(grep '^other' <<<"$crashes" | cut -f2- | head -1 || true)
   if [ -n "$own" ]; then
@@ -300,14 +307,26 @@ wait_device() { # wait_device PID ERE SECONDS: prints the first matching line of
     t=$((t + 1))
   done
 }
-# A SIGABRT since MARK in one of the PIDs (logcat's third column) or naming
-# the package, so that another process's abort is not reported as the
-# application's; no_crash notes that abort without failing on it.
-aborts() { # aborts MARK PID...
-  local mark=$1
-  shift
-  tail -n +"$((mark + 1))" "$LOG" | grep -E 'Fatal signal 6|SIGABRT' \
-    | awk -v pids=" $* " -v pkg="$PKG" 'index(pids, " " $3 " ") || index($0, pkg)' || true
+# aborts MARK PID...: the application's SIGABRTs since MARK, one a line. Whose
+# a line is, crash_lines decides, as it does for no_crash, so the two checks
+# cannot disagree: a 'Fatal signal' line is judged by the process it names, not
+# by the process that wrote it. no_crash notes another process's abort without
+# failing on it.
+aborts() {
+  crash_lines "$@" | awk -F '\t' '$1 == "own" && $2 ~ /Fatal signal 6|SIGABRT/ { print $2 }' || true
+}
+# COMMS: the names the kernel gave the application's processes in this run,
+# separated by spaces, which crash_lines matches a crash's process name with.
+COMMS=
+# note_comm PID: adds the kernel's name for that process, from /proc/PID/comm,
+# to COMMS. Called on each of the application's processes the run starts, while
+# it lives, so that the crash checks match the name this image gives it.
+note_comm() {
+  local c
+  [ -n "$1" ] || return 0
+  c=$(ash cat "/proc/$1/comm" 2>/dev/null || true)
+  [ -n "$c" ] || return 0
+  case " $COMMS " in *" $c "*) ;; *) COMMS="${COMMS:+$COMMS }$c" ;; esac
 }
 # 'Don't keep activities' is the global setting always_finish_activities, and
 # the framework reads it only when it starts: ActivityManagerService.systemReady
@@ -569,7 +588,8 @@ on_emulator() {
     wait_log "$m" '^TAWARA start: private directory .*/no_backup$' 60
   sleep 5
   pid=$(app_pid)
-  check running "a process, pid $pid" test -n "$pid"
+  note_comm "$pid"
+  check running "a process, pid $pid, which the kernel names '${COMMS:-unread}'" test -n "$pid"
   check resumed "the activity is in front: $(resumed)" grep -q "$PKG" <<<"$(resumed)"
   endgroup
 
@@ -644,8 +664,8 @@ on_emulator() {
   sleep 5
   echo "$TAG lines after Back from the foreground:"
   tag_lines "$m0"
-  # The first process's window ends with the reboot below, and after it the
-  # same PID may belong to another process, so its SIGABRT check is made now.
+  # The first process's window ends with the reboot below, so its SIGABRT
+  # check is made now, before the reboot's own lines are in the log.
   aborted=$(aborts "$m0" "$pid")
   KEEP_WAS=$(ash settings get global always_finish_activities)
   dont_keep_activities 1 || die "the emulator did not come back after the reboot that turns 'Don't keep activities' on"
@@ -672,6 +692,7 @@ on_emulator() {
     sleep 5
     rpid=$(app_pid)
     pids="$pids $rpid"
+    note_comm "$rpid"
     m=$(mark)
     # Cleared before Back, so the destroy read after it is this run's own.
     ash logcat -b events -c || die "the event log could not be cleared"
@@ -713,9 +734,16 @@ on_emulator() {
   check exit.locks "$locked of $runs runs logged the lock after Back (only destroyed runs count)" test "$locked" = "$runs"
   check exit.ended "$ended of $runs processes ended after Back (only destroyed runs count)" test "$ended" = "$runs"
   check exit.lock "$finished of $runs runs: TAWARA exit: lock done (only destroyed runs count)" test "$finished" = "$runs"
-  aborted=$(printf '%s\n' "$aborted" | grep -v '^$' | tr '\n' ' ' | cut -c1-300 || true)
-  check exit.no_sigabrt "${aborted:-no SIGABRT or Fatal signal 6 from the application since the first Back}" \
-    test -z "$aborted"
+  # The count first, since the lines themselves are cut short for the table.
+  aborted=$(printf '%s\n' "$aborted" | grep -v '^$' || true)
+  local naborts
+  naborts=$(grep -c . <<<"$aborted" || true)
+  if [ "$naborts" = 0 ]; then
+    aborted="no SIGABRT or Fatal signal 6 from the application since the first Back"
+  else
+    aborted="$naborts of the application's aborts since the first Back: $(tr '\n' ' ' <<<"$aborted" | cut -c1-300)"
+  fi
+  check exit.no_sigabrt "$aborted" test "$naborts" = 0
   restored=$(ash settings get global always_finish_activities || true)
   check exit.restored "'Don't keep activities' reads $restored, as it was ($KEEP_WAS)" test "$restored" = "$KEEP_WAS"
   endgroup
@@ -730,41 +758,63 @@ on_emulator() {
   ! grep -q $'\tFAIL\t' "$OUT/results.tsv"
 }
 
-# selftest: the crash parser on the lines the emulator check logged in the run
-# that reproduced the application's SIGABRT (D32 item 9 (j)). The five 'Fatal
-# signal' lines are copied from that run's logcat: five processes, two thread
-# names, the application's name as the kernel keeps it. Each must be counted as
-# the application's. The system_server line is not from the run: it has the same
-# form with another process's name, so that the other branch is exercised, and it
-# must not be counted as the application's. A verdict that differs fails the script.
+# selftest: the crash parser, no_crash and the abort check, on logged lines (D32
+# item 9 (j)). The first five 'Fatal signal' lines are copied from the emulator
+# run that reproduced the application's SIGABRT under std::process::exit: five
+# processes, two thread names, the application's name as the kernel keeps it.
+# The other three are made in the same form, since no run logged them: the
+# system server's abort; an abort that names pid 1940 under the application's
+# name but was written by pid 1000, so the PID column is not the crashing
+# process; and an abort under the package's first 15 characters, which the
+# kernel did not give the application in that run, so it counts as the
+# application's only once the run has read that name from /proc. A result that
+# differs fails the script.
 selftest() {
-  local fixture=$OUT/selftest-logcat.txt saved=$LOG crashes own other failed=0
-  cat >"$fixture" <<'LOGCAT'
+  local dir=$OUT/selftest failed=0 got
+  mkdir -p "$dir"
+  # The functions below read LOG, OUT and COMMS. These stand in for the run's
+  # own until this function returns, so no result of a run is touched.
+  local LOG=$dir/logcat.txt
+  local OUT=$dir
+  local COMMS=
+  : >"$OUT/results.tsv"
+  cat >"$LOG" <<'LOGCAT'
 10-12 23:45:29.642  2060  2132 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 2132 (hwuiTask0), pid 2060 (hlaravel.tawara)
 10-12 23:45:47.758  3651  3676 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 3676 (hwuiTask0), pid 3651 (hlaravel.tawara)
 10-12 23:46:06.085  4026  4051 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4051 (hwuiTask0), pid 4026 (hlaravel.tawara)
 10-12 23:46:22.372  4110  4135 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4135 (hwuiTask0), pid 4110 (hlaravel.tawara)
 10-12 23:46:39.773  4318  4345 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4345 (hwuiTask1), pid 4318 (hlaravel.tawara)
-10-12 23:45:29.600   655   695 F libc    : Fatal signal 6 (SIGABRT), code -6 (SI_TKILL) in tid 695 (system_server), pid 655 (system_server)
+10-12 23:46:40.600   655   695 F libc    : Fatal signal 6 (SIGABRT), code -6 (SI_TKILL) in tid 695 (system_server), pid 655 (system_server)
+10-12 23:46:41.118  1000  1000 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 2007 (hwuiTask0), pid 1940 (hlaravel.tawara)
+10-12 23:46:42.200  5000  5021 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 5021 (hwuiTask0), pid 5000 (com.patricksmit)
 LOGCAT
-  LOG=$fixture
-  crashes=$(crash_lines 2060 3651 4026 4110 4318)
-  LOG=$saved
-  own=$(grep -c '^own' <<<"$crashes" || true)
-  other=$(grep -c '^other' <<<"$crashes" || true)
-  if [ "$own" = 5 ]; then
-    echo "CHECK PASS selftest.app_aborts: $own of 5 of the application's aborts counted as its own"
-  else
-    echo "CHECK FAIL selftest.app_aborts: $own of 5 counted as the application's: $crashes"
-    failed=1
-  fi
-  if [ "$other" = 1 ]; then
-    echo "CHECK PASS selftest.other_process: another process's abort is not counted as the application's"
-  else
-    echo "CHECK FAIL selftest.other_process: $other counted as the application's, 1 expected: $crashes"
-    failed=1
-  fi
+  got=$(crash_lines 0 2060 3651 4026 4110 4318 | cut -f1 | tr '\n' ' ')
+  selfcheck selftest.verdicts "own own own own own other own other " "$got" \
+    "the five aborts of the run, the system server's, one written by another process, one under a name the run did not read"
+  COMMS="hlaravel.tawara com.patricksmit"
+  got=$(crash_lines 0 2060 | tail -1 | cut -f1)
+  COMMS=
+  selfcheck selftest.kernel_name own "$got" "an abort under a name read from /proc for the application"
+  got="$(aborts 0 2060 | grep -c . || true) $(aborts 6 2060 | grep -c . || true)"
+  selfcheck selftest.aborts "6 1" "$got" "the application's aborts in the whole log, and after line 6"
+  no_crash_check 2060 >/dev/null
+  got=$(tail -1 "$OUT/results.tsv" | cut -f2)
+  LOG=$dir/other.txt
+  sed -n 6p "$dir/logcat.txt" >"$LOG"
+  no_crash_check 2060 >/dev/null
+  got="$got $(tail -1 "$OUT/results.tsv" | cut -f2)"
+  selfcheck selftest.no_crash "FAIL PASS" "$got" "no_crash on the whole log, and on the system server's abort alone"
   return "$failed"
+}
+# selfcheck NAME WANT GOT DETAIL: prints the selftest's CHECK line, and sets
+# selftest's failed when GOT is not WANT.
+selfcheck() {
+  if [ "$3" = "$2" ]; then
+    echo "CHECK PASS $1: $4: $3"
+  else
+    echo "CHECK FAIL $1: $4: got '$3', want '$2'"
+    failed=1
+  fi
 }
 
 case ${1:-} in
