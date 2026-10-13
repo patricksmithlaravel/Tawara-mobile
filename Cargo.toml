@@ -27,14 +27,13 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At 9cfeefa: Tawara-wallet pull request #18's merge commit on `main`, which
-# D32 item 9 (c) asks the pin to name. It carries the move to the owner's iced
-# fork at v0.14.1-mobile.2, and it contains f095432, the commit this line
-# named before. `main`'s later head, 64e14cb (pull request #19), adds the
-# required `Host::share`, which this shell does not set, so it does not build
-# against that head. Tawara-mobile pull request #8 provides `share` and moves
-# the pin on.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "9cfeefaefbe9497bfda9b1032b2ee397a3297d56" }
+# At 80292d2: Tawara-wallet's `main` at pull request #23's merge commit. #23
+# carries the owner's share-sheet decisions of 2026-10-13 (D32 item 10 (i)),
+# and `Host::share` returns `Result<(), String>`, where `Ok` means the platform
+# was asked to show the sheet, not that it was shown. D32 item 9 (c) asks for
+# the pin to name that commit once #23 merges. It replaces the pin at 389f731,
+# Tawara-wallet's `main` at pull request #20's merge commit.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "80292d2c3c279ec61e0fa950ab3fa317a44e57eb" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
@@ -44,12 +43,13 @@ tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev
 # iced crate, and one winit with them; the policy test holds the lockfile to
 # it. Android: the fork's `set_android_app` and `on_lifecycle`, winit's
 # NativeActivity backend, which the `android-native-activity` feature turns on,
-# and JNI for the clipboard and Back. The backend is chosen by that feature
-# rather than by feature unification, because exactly one android-activity
-# backend must be on. iOS: the fork puts winit's window in UIKit's window
-# scene; the shell uses the versions winit 0.30.13 already links, for the
-# pasteboard, the app-switcher cover, the store's protection class and its
-# backup exclusion. No Java, Kotlin, Swift or Objective-C source (D4).
+# and JNI for the clipboard, the share sheet and Back. The backend is chosen by
+# that feature rather than by feature unification, because exactly one
+# android-activity backend must be on. iOS: the fork puts winit's window in
+# UIKit's window scene; the shell uses the versions winit 0.30.13 already links,
+# for the pasteboard, the share sheet, the app-switcher cover, the store's
+# protection class and its backup exclusion. No Java, Kotlin, Swift or
+# Objective-C source (D4).
 #
 # winit has no line of its own. It is the fork's vendored copy, reached as
 # `iced_winit::winit`, and a crates.io winit beside it would be a second copy
@@ -77,12 +77,15 @@ objc2-foundation = { version = "0.2.2", features = [
 ] }
 objc2-ui-kit = { version = "0.2.2", features = [
     "block2",
+    "UIActivity",
+    "UIActivityViewController",
     "UIApplication",
     "UIColor",
     "UIPasteboard",
     "UIResponder",
     "UIScene",
     "UIView",
+    "UIViewController",
     "UIWindow",
     "UIWindowScene",
 ] }
