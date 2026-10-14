@@ -25,10 +25,14 @@
 # has passed (D32 item 10); that the Android manifest carries the backup rules
 # and the nineteen configuration changes the activity handles (D32 item 9: the
 # eighteen of API 35 and assetsPaths of API 36), and the iOS bundle the scene
-# manifest; and that a change of the navigation mode's overlay, which changes
-# the asset paths, reaches the Android application and leaves its activity in
-# front, in its process and not relaunched (D32 item 9 (i)).
-# The committed THIRD-PARTY-NOTICES.txt is the
+# manifest; that a change of the navigation mode's overlay, which changes the
+# asset paths, reaches the Android application and leaves its activity in
+# front, in its process and not relaunched (D32 item 9 (i)); and, on the x86_64
+# emulator, that with 'Don't keep activities' on the framework destroys the
+# activity after Back, and the process then ends, without an abort (D32 item
+# 9). Whether the lock is done by then is reported as a count and does not fail
+# the job (D32 item 9 (j); Tawara-wallet #25). The committed
+# THIRD-PARTY-NOTICES.txt is the
 # file ci/notices.sh writes, byte for byte (Tawara-wallet's D35). A green run
 # does not say that the notices are in the app bundles, which is packaging work
 # (the README says so). Nothing here checks the Android copy's sensitive mark,
@@ -139,6 +143,9 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           nproc; free -g; df -h / | tail -1
           rustc -vV
+
+      - name: Crash parser self-check
+        run: bash "$TAWARA/platform/android/tawara.sh" selftest
 
       - name: Build libtawara_mobile.so (arm64-v8a, x86_64)
         run: bash "$TAWARA/platform/android/tawara.sh" build

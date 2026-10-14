@@ -5,14 +5,15 @@
 //! The activity is `android.app.NativeActivity` (platform/android). JNI
 //! reaches the platform's classes through the `Application` that
 //! android-activity registers with `ndk-context`, as phase 1's spike did
-//! (Tawara-wallet's docs/spikes/P1-REPORT.md). What this writes on stderr
-//! goes to logcat under the tag `RustStdoutStderr`, one `TAWARA` line per
-//! fact, never a secret. A Java exception that the share sheet's calls leave
-//! pending is described in the system log as well, outside those lines, and
-//! its trace can take several.
+//! (Tawara-wallet's docs/spikes/P1-REPORT.md). What this writes on stderr,
+//! and the exit and stop lines written directly, goes to logcat under the
+//! tag `RustStdoutStderr`, one `TAWARA` line per fact, never a secret. A Java
+//! exception that the share sheet's calls leave pending is described in the
+//! system log as well, outside those lines, and its trace can take several.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 
 // winit is the fork's vendored copy, reached through iced_winit so that the
 // build holds one copy of it (D32 item 9 (b)).
@@ -20,10 +21,15 @@ use iced_winit::winit::platform::android::activity::{AndroidApp, WindowManagerFl
 use jni::objects::{JObject, JString, JValue};
 use jni::vm::JavaVM;
 use jni::{jni_sig, jni_str};
-use tawara_app::Host;
+use tawara_app::{Host, Leaving};
 
 /// The activity, for Back.
 static APP: OnceLock<AndroidApp> = OnceLock::new();
+
+/// The lock that the last move to the background started, kept for the line
+/// the process writes as it ends (D32 item 9). `None` until the system has
+/// suspended the application.
+static LEAVING: Mutex<Option<Leaving>> = Mutex::new(None);
 
 /// Start the application in the activity android-activity has created.
 pub fn main(app: AndroidApp) {
@@ -31,8 +37,14 @@ pub fn main(app: AndroidApp) {
     // thumbnail (D32 item 4). Before the first frame, so none is taken.
     app.set_window_flags(WindowManagerFlags::SECURE, WindowManagerFlags::empty());
     let Some(private_dir) = private_dir(&app) else {
-        eprintln!("TAWARA stop: the app-private directory could not be made");
-        std::process::exit(1);
+        // Written directly, as the exit line is: `_exit` follows at once (see
+        // `log_direct`).
+        log_direct("TAWARA stop: the app-private directory could not be made");
+        // `_exit`, as at the end of this function: android-activity asks that
+        // `std::process::exit` not be called from `android_main` (D32 item 9
+        // (j)). No renderer has started here.
+        // SAFETY: `_exit` takes no pointer and does not return.
+        unsafe { libc::_exit(1) }
     };
     eprintln!("TAWARA start: private directory {}", private_dir.display());
     let _ = APP.set(app.clone());
@@ -45,13 +57,27 @@ pub fn main(app: AndroidApp) {
         back,
     };
     if let Err(error) = tawara_app::run_in(host) {
-        eprintln!("TAWARA stop: {error}");
+        log_direct(&format!("TAWARA stop: {error}"));
     }
+    // Asked without waiting, so the line shows whether the lock is finished
+    // when the process ends (D32 item 9). A wait here would not finish it:
+    // the interface takes the worker's answer only in its update, which runs
+    // while the event loop runs, and winit ends that loop when the Activity is
+    // destroyed, before run_in returns (D32 item 9 (j)). Finishing the lock
+    // after that needs a change in tawara-app, which this repository does not
+    // make.
+    log_direct(&format!("TAWARA exit: {}", lock_state()));
     // The process ends with this one, so the next launch starts cold (D32
     // item 9 (d)). The fork's winit allows a second event loop once this one
     // is dropped, but a second `android_main` here would need the Activity's
     // handles, the host statics and FLAG_SECURE built again, for a rare event.
-    std::process::exit(0);
+    // The process ends with `_exit`, not `exit`, because `exit` runs the C
+    // library's atexit handlers and the static destructors of the libraries
+    // in the process while the window's render threads still run. The
+    // emulator's exits aborted with SIGABRT in that state, bionic reporting a
+    // lock on a destroyed mutex (D32 item 9 (j)). `_exit` runs none of them.
+    // SAFETY: `_exit` takes no pointer and does not return.
+    unsafe { libc::_exit(0) }
 }
 
 /// `no_backup/`, beside `files/`: the system leaves it out of Auto Backup
@@ -82,8 +108,34 @@ fn lifecycle(event: iced_winit::Lifecycle) {
         eprintln!("TAWARA lifecycle: suspended; locking");
         // Not waited for: Android's process is not suspended the moment
         // this returns, and bounding the wait here as on iOS was declined
-        // for now (D32 item 6).
-        let _ = tawara_app::left_foreground();
+        // for now (D32 item 6). The Leaving is kept for the exit's line.
+        let leaving = tawara_app::left_foreground();
+        *LEAVING.lock().unwrap_or_else(PoisonError::into_inner) = Some(leaving);
+    }
+}
+
+/// Whether the lock has finished, asked without waiting: `Leaving::wait`
+/// with no time to wait answers at once, `true` once the interface has done
+/// with the move, or when there was nothing to do (D32 item 9).
+fn lock_state() -> &'static str {
+    let kept = LEAVING.lock().unwrap_or_else(PoisonError::into_inner);
+    match kept.as_ref() {
+        None => "no lock was started",
+        Some(leaving) if leaving.wait(Duration::ZERO) => "lock done",
+        Some(_) => "lock not done",
+    }
+}
+
+/// Logs a line the process writes just before it ends: the exit with the
+/// lock's state, or why it stopped. It goes to logcat directly, not through
+/// stderr: the thread that forwards stderr to logcat, in android-activity
+/// (`forward_stdio_to_logcat`), may not have read a line written just before
+/// `_exit`, and then the line is lost. `Log.i` hands the line to logd before
+/// it returns (D32 item 9). Should JNI fail, the line goes to stderr after
+/// all, with the reason, as the only way left to say it.
+fn log_direct(line: &str) {
+    if let Err(error) = log_line(line) {
+        eprintln!("{line} (not logged directly: {error:?})");
     }
 }
 
@@ -242,6 +294,21 @@ fn with_context<T>(
         // SAFETY: a global reference that android-activity never deletes.
         let context = unsafe { env.as_cast_raw::<JObject>(&context)? };
         f(env, &context)
+    })
+}
+
+/// Writes `line` to logcat under the tag the application's stderr lines carry.
+fn log_line(line: &str) -> jni::errors::Result<()> {
+    with_context(|env, _context| {
+        let tag = env.new_string("RustStdoutStderr")?;
+        let message = env.new_string(line)?;
+        env.call_static_method(
+            jni_str!("android/util/Log"),
+            jni_str!("i"),
+            jni_sig!((java.lang.String, java.lang.String) -> jint),
+            &[JValue::Object(&tag), JValue::Object(&message)],
+        )?;
+        Ok(())
     })
 }
 

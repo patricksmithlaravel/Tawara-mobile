@@ -57,6 +57,10 @@ tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev
 iced_winit = { git = "https://github.com/patricksmithlaravel/iced_mobile", rev = "d4ab3a057db96162b087a27dd0752a3b15abfa6b", default-features = false, features = ["android-native-activity"] }
 jni = "0.22.4"
 ndk-context = "0.1.1"
+# The Android entry calls `_exit`, which ends the process without the C
+# library's exit handlers (crates/mobile/src/android.rs; D32 item 9 (j)). The
+# lockfile already holds this version, so the build gains no package.
+libc = "0.2.190"
 objc2 = "0.5.2"
 block2 = "0.5.1"
 objc2-foundation = { version = "0.2.2", features = [

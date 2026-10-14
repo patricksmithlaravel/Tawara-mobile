@@ -26,8 +26,9 @@ const ANDROID_TARGETS: [&str; 2] = ["aarch64-linux-android", "x86_64-linux-andro
 /// all, is reached through `tawara-app` or not at all. `winit` is not one of
 /// them. It comes from the owner's fork through `iced_winit`: a crates.io line
 /// of its own would be a second copy, and a direct line to the fork would be a
-/// second line to keep in step with iced (D32 item 9 (b)).
-const MOBILE_DEPENDENCIES: [&str; 8] = [
+/// second line to keep in step with iced (D32 item 9 (b)). `libc` is there for
+/// the one C call the Android entry makes, `_exit` (D32 item 9 (j)).
+const MOBILE_DEPENDENCIES: [&str; 9] = [
     "tawara-app",
     "iced_winit",
     "jni",
@@ -36,6 +37,7 @@ const MOBILE_DEPENDENCIES: [&str; 8] = [
     "block2",
     "objc2-foundation",
     "objc2-ui-kit",
+    "libc",
 ];
 
 fn root() -> PathBuf {
