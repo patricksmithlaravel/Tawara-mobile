@@ -17,7 +17,10 @@
 # `CHECK PASS|FAIL <name>: <detail>` lines and a table in the step summary,
 # and fails if any check failed. A count that is reported and not gated is
 # printed as `CHECK NOTE <name>: <detail>`: it is in the table, and it never
-# fails the job (exit.lock; D32 item 9 (j)).
+# fails the job (exit.lock; D32 item 9 (j)). After the first start, after the
+# asset-path check and at the end of the run, it also prints the system's lines
+# about the application's activity and process (`trace`), so that a start-up
+# which ends says why in the job log.
 set -Eeuo pipefail
 
 PKG=com.patricksmithlaravel.tawara
@@ -30,6 +33,9 @@ IMG="system-images;android-35;google_apis;x86_64"
 NDK_PIN=29.0.14206865
 SERIAL=emulator-5554
 TAG=RustStdoutStderr
+# The logcat buffers the checks read: the application and the system, the
+# crashes, and the events of activity starts, relaunches and process ends.
+LOG_BUFFERS=main,system,crash,events
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 OUT=${RUNNER_TEMP:-/tmp}/tawara-android
@@ -91,8 +97,19 @@ apk() {
   cd "$ROOT"
   local bt jar w=$OUT/apk
   bt=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
-  jar=$(ls -d "$SDK"/platforms/android-3[5-9] 2>/dev/null | sort -V | tail -1)/android.jar
-  [ -f "$jar" ] || die "no android-35 or later platform in $SDK/platforms"
+  # aapt2 links against API 36's jar, pinned rather than the newest one
+  # installed, because it knows assetsPaths from that platform only (D32 item 9
+  # (i)). The jar supplies the attribute names and the framework's resource
+  # IDs, such as the theme's; the API level the application targets stays at
+  # TARGET_API. A runner without the platform installs it, as ndk_paths does
+  # the NDK, and the build stops if it is still missing rather than compile
+  # against another platform.
+  jar=$SDK/platforms/android-36/android.jar
+  if [ ! -f "$jar" ]; then
+    # `yes` dies of SIGPIPE when sdkmanager exits; only sdkmanager's status counts.
+    (yes 2>/dev/null || true) | sdkmanager --install "platforms;android-36" >/dev/null
+  fi
+  [ -f "$jar" ] || die "no android-36 platform in $SDK/platforms (sdkmanager 'platforms;android-36')"
   echo "build-tools $bt; platform $jar"
   rm -rf "$w"
   mkdir -p "$w/root/lib" "$w/res"
@@ -153,7 +170,74 @@ wait_log() { # wait_log MARK ERE SECONDS: prints the first matching application 
   done
 }
 app_pid() { ash pidof "$PKG" || true; }
+# same_pid PID: the application runs under PID. An unknown PID never passes, so
+# a process that is already gone cannot make the check pass.
+same_pid() { [ -n "$1" ] && [ "$(app_pid)" = "$1" ]; }
 resumed() { ash dumpsys activity activities | grep -m1 -E 'topResumedActivity=|ResumedActivity:' || true; }
+wait_sys() { # wait_sys MARK ERE SECONDS: prints the first line since MARK that matches, of any tag
+  local t=0 line
+  while :; do
+    line=$(tail -n +"$(($1 + 1))" "$LOG" | grep -E -m1 "$2" || true)
+    [ -n "$line" ] && { echo "$line"; return 0; }
+    [ "$t" -ge "$3" ] && return 1
+    sleep 1
+    t=$((t + 1))
+  done
+}
+# no_sys MARK ERE: no line since MARK matches. grep counts every line rather
+# than stop at the first, so that tail is never cut off by a closed pipe, which
+# pipefail would report as a failure.
+no_sys() {
+  local n
+  n=$(tail -n +"$(($1 + 1))" "$LOG" | grep -cE "$2" || true)
+  [ "$n" = 0 ]
+}
+overlay_state() { ash cmd overlay list | grep -E "\] $1\$" | head -n 1 || true; }
+# trace MARK [END]: the log's lines after MARK, up to END or to the end of the
+# log, that say how the application started and how it ended, each cut to 300
+# characters. When more than 200 are kept, the last 200 are printed with a line
+# saying how many were left out, since a relaunch and a process end come last.
+# The lines kept are the system's records that name $PKG; the overlay commits,
+# which are the system's record of an overlay change and name no application;
+# and, from the application's own processes (those that log $PKG or that the
+# system starts for it), their activity events, asset updates, fatal messages
+# and TAWARA lines. Other applications' lines are left out. The overlay list
+# and some checks' details still name the image's own system packages.
+trace() {
+  local slice=$OUT/trace-slice.txt kept=$OUT/trace-kept.txt n
+  awk -v a="$1" -v b="${2:-}" 'NR > a && (b == "" || NR <= b)' "$LOG" >"$slice" || true
+  if ! awk -v pkg="$PKG" '
+    FNR == NR {
+      if (index($0, pkg)) {
+        if ($6 ~ /^(RustStdoutStderr|ActivityThread|AndroidRuntime):$/) own[$3] = 1
+        if (match($0, /am_proc_(start|died): \[[0-9]+,[0-9]+,/)) {
+          split(substr($0, RSTART, RLENGTH), f, ",")
+          own[f[2]] = 1
+        }
+      }
+      next
+    }
+    {
+      tag = $6
+      sub(/:$/, "", tag)
+      event = (tag ~ /^(am|wm)_/)
+      named = (tag ~ /^(ActivityTaskManager|ActivityManager|WindowManager|ActivityThread|AndroidRuntime|DEBUG|lowmemorykiller|OverlayManager|PackageManager)$/)
+      if (index($0, pkg) && (event || named)) print
+      else if (tag == "commit_sys_config_file" && /\[overlays,/) print
+      else if (!($3 in own)) next
+      else if (event) print
+      else if (tag == "ActivityThread" && /assets (added|removed)/) print
+      else if (tag == "libc" && $5 == "F") print
+      else if (tag == "RustStdoutStderr" && / RustStdoutStderr: TAWARA /) print
+    }
+  ' "$slice" "$slice" >"$kept"; then
+    echo "::warning::trace: awk failed, so the lines below may be incomplete"
+  fi
+  n=$(awk 'END { print NR }' "$kept")
+  if [ "$n" -gt 200 ]; then echo "($((n - 200)) earlier lines not shown)"; fi
+  tail -n 200 "$kept" | cut -c1-300
+  rm -f "$slice" "$kept"
+}
 # crash_lines FROM PID...: one line for each crash in the log after its line
 # FROM (0 for the whole log), as 'own' or 'other', a tab, and what the log said.
 # A crash whose process is named is judged by that name alone: it is the
@@ -419,11 +503,12 @@ reboot_and_wait() {
 # the beginning of the device's buffer, which after a reboot holds that boot's
 # lines, so the buffer is cleared first, as emulator_up does before the first
 # stream: no_crash and the SIGABRT check then read the application's window and
-# not the system's start (D32 item 9 (j)).
+# not the system's start (D32 item 9 (j)). It reads the buffers emulator_up reads,
+# so that the events trace prints are in it too.
 restart_log() {
   if [ -f "$OUT/logcat.pid" ]; then kill "$(cat "$OUT/logcat.pid")" 2>/dev/null || true; fi
-  a logcat -c || { echo "::error::the log could not be cleared after the reboot"; return 1; }
-  a logcat -v threadtime >>"$LOG" 2>&1 &
+  a logcat -b "$LOG_BUFFERS" -c || { echo "::error::the log could not be cleared after the reboot"; return 1; }
+  a logcat -b "$LOG_BUFFERS" -v threadtime >>"$LOG" 2>&1 &
   echo $! >"$OUT/logcat.pid"
 }
 # The count of the lines dumpsys prints for the framework's own field: one while
@@ -526,8 +611,12 @@ emulator_up() {
   ash input keyevent KEYCODE_WAKEUP
   ash wm dismiss-keyguard || true
   echo "sdk=$(ash getprop ro.build.version.sdk) abi=$(ash getprop ro.product.cpu.abilist)"
-  a logcat -c
-  a logcat -v threadtime >"$LOG" 2>&1 &
+  # The events buffer holds the records of the activity's starts, relaunches
+  # and process ends (wm_*, am_*), which `trace` prints. Without it a relaunch
+  # would leave no line, and a start that ends would be unexplained (D32 item 9
+  # (i) and (d)).
+  a logcat -b "$LOG_BUFFERS" -c || true
+  a logcat -b "$LOG_BUFFERS" -v threadtime >"$LOG" 2>&1 &
   echo $! >"$OUT/logcat.pid"
   endgroup
 }
@@ -568,22 +657,26 @@ on_emulator() {
   check manifest.dataExtractionRules "android:dataExtractionRules names the rules" \
     grep -q 'android:dataExtractionRules' "$OUT/manifest.txt"
   # The activity handles every configuration change this mask names (D32
-  # item 9), so the mask must hold the eighteen names of API 35. A name left
-  # out lets Android recreate the activity, which ends the application. The
-  # detail shows each mask aapt2 read, to compare bit by bit with 0x5000ffff.
-  # They are joined on one line, so a second element with a mask of its own
-  # fails the check rather than hide behind the first.
+  # item 9), so the mask must hold the nineteen names: the eighteen of API 35
+  # and assetsPaths of API 36. A name left out lets Android recreate the
+  # activity, which ends the application. The detail shows each mask aapt2
+  # read, to compare bit by bit with 0xd000ffff. They are joined on one line,
+  # so a second element with a mask of its own fails the check rather than
+  # hide behind the first.
   local changes
   changes=$(awk 'match($0, /configChanges\(0x[0-9a-f]+\)=.*/) {
     s = s (s == "" ? "" : "; ") substr($0, RSTART)
   } END { print (s == "" ? "no configChanges" : s) }' "$OUT/manifest.txt")
-  check manifest.configChanges "want 0x5000ffff (18 names): $changes" \
-    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0x5000ffff$' <<<"$changes"
+  check manifest.configChanges "want 0xd000ffff (19 names): $changes" \
+    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0xd000ffff$' <<<"$changes"
   endgroup
 
   group "install and start"
+  # The mark before the install, so that the trace also holds the system's
+  # overlay update, which can follow the install within a second (D32 item 9 (i)).
+  local m m0 pid
+  m0=$(mark)
   a install -r -g "$OUT/tawara.apk"
-  local m pid
   m=$(mark)
   ash am start -W -n "$PKG/$ACTIVITY"
   check start "the application starts in its private directory" \
@@ -593,6 +686,16 @@ on_emulator() {
   note_comm "$pid"
   check running "a process, pid $pid, which the kernel names '${COMMS:-unread}'" test -n "$pid"
   check resumed "the activity is in front: $(resumed)" grep -q "$PKG" <<<"$(resumed)"
+  endgroup
+
+  group "first launch: the system's account"
+  # Printed in every run, so that a start which ends explains itself: the
+  # system's lines since before the install, and the overlays it had then. The
+  # account at the end of the run starts where this one stops.
+  local mt
+  mt=$(mark)
+  trace "$m0" "$mt"
+  ash cmd overlay list | head -n 200 || true
   endgroup
 
   group "FLAG_SECURE"
@@ -613,6 +716,66 @@ on_emulator() {
   check no_backup.private "$listing" grep -qE '^drwx------ ' <<<"$listing"
   endgroup
 
+  group "an asset-path change keeps the activity"
+  # The navigation mode is a framework overlay. Toggling it changes the asset
+  # paths of every running application, and the system reports that to each of
+  # them. An activity that does not declare assetsPaths is relaunched for the
+  # change, and a relaunch ends this application (D32 item 9 (i) and (d)). The
+  # manifest declares assetsPaths, so neither may happen here. The
+  # check needs the activity in front before the toggle, so that a process which
+  # is already gone cannot pass it. The update must then reach the application,
+  # or the checks after it would pass without the change they are about. The
+  # process must stay, the activity must stay in front and not be relaunched,
+  # and the application must still lock when it leaves the screen. The trace is
+  # taken before the overlay is put back, so that it holds the toggle alone.
+  # The image must have the gestural navigation overlay; one without it fails
+  # here, with nothing toggled.
+  local ov=com.android.internal.systemui.navbar.gestural was op undo p0 front m1 m2 toggled
+  was=$(overlay_state "$ov")
+  p0=$(app_pid)
+  front=$(resumed)
+  if [ -z "$was" ]; then
+    record assets.same_process FAIL "no overlay $ov on this image, so nothing was toggled"
+  elif [ -z "$p0" ] || ! grep -q "$PKG" <<<"$front"; then
+    record assets.same_process FAIL "not running and in front before the toggle (pid '$p0'), so nothing was toggled: $front"
+    echo "The system's account since the first launch, at the end of this log, says why."
+  else
+    case $was in
+      *'[x]'*) op=disable undo=enable ;;
+      *) op=enable undo=disable ;;
+    esac
+    m1=$(mark)
+    toggled=$(ash cmd overlay "$op" --user 0 "$ov" 2>&1 | tr '\t\n' '  ' || true)
+    check assets.delivered "the system updated the application's asset paths after overlay $op${toggled:+ ($toggled)}" \
+      wait_sys "$m1" "ActivityThread: ApplicationInfo updating for $PKG" 20
+    sleep 10
+    check assets.same_process "pid $(app_pid), was $p0, after overlay $op" same_pid "$p0"
+    check assets.resumed "in front after overlay $op: $(resumed)" grep -q "$PKG" <<<"$(resumed)"
+    check assets.no_relaunch "no relaunch of the activity after overlay $op" \
+      no_sys "$m1" "wm_relaunch(_resume)?_activity: .*$PKG"
+    m2=$(mark)
+    trace "$m1" "$m2"
+    ash input keyevent KEYCODE_HOME
+    check assets.locks "the lock on leaving the screen after overlay $op" \
+      wait_log "$m2" '^TAWARA lifecycle: suspended; locking$' 30
+    ash cmd overlay "$undo" --user 0 "$ov" >/dev/null 2>&1 || true
+    local t=0
+    until [ "$(overlay_state "$ov")" = "$was" ] || [ "$t" -ge 10 ]; do
+      sleep 1
+      t=$((t + 1))
+    done
+    if [ "$(overlay_state "$ov")" = "$was" ]; then
+      echo "overlay $ov put back: $was"
+    else
+      echo "::warning::overlay $ov not put back after overlay $undo: $(overlay_state "$ov"), was $was"
+    fi
+    # Back in front for the Home and Back checks after this group, which begin
+    # with the activity in front, as they did before it.
+    ash am start -W -n "$PKG/$ACTIVITY" >/dev/null
+    sleep 5
+  fi
+  endgroup
+
   group "Home: suspended and locked, then back"
   m=$(mark)
   ash input keyevent KEYCODE_HOME
@@ -621,7 +784,7 @@ on_emulator() {
   sleep 2
   ash am start -W -n "$PKG/$ACTIVITY"
   sleep 5
-  check home.same_process "the process lives on (pid $(app_pid), was $pid)" test "$(app_pid)" = "$pid"
+  check home.same_process "the process lives on (pid $(app_pid), was $pid)" same_pid "$pid"
   check home.resumed "in front again: $(resumed)" grep -q "$PKG" <<<"$(resumed)"
   endgroup
 
@@ -633,7 +796,7 @@ on_emulator() {
   sleep 2
   ash am start -W -n "$PKG/$ACTIVITY"
   sleep 5
-  check back.same_process "the process lives on (pid $(app_pid), was $pid)" test "$(app_pid)" = "$pid"
+  check back.same_process "the process lives on (pid $(app_pid), was $pid)" same_pid "$pid"
   endgroup
 
   group "Back and the lock before the exit (D32 item 9)"
@@ -761,6 +924,10 @@ on_emulator() {
   # Only the application's crashes fail this check; see crash_lines.
   # shellcheck disable=SC2086 # Split on purpose: one argument per pid.
   no_crash_check "$pid" $pids
+
+  group "the system's account since the first launch"
+  trace "$mt"
+  endgroup
 
   group "the application's lines"
   grep -E "$TAG: TAWARA " "$LOG" | sed -E "s/.*$TAG: //" || true

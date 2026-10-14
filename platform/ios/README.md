@@ -7,8 +7,9 @@ Bundle identifier: `com.patricksmithlaravel.tawara` (D8).
 
 - `Info.plist.in`: the bundle's keys, among them the scene manifest
   without which UIKit stops an app linked with the iOS 27 SDK at launch
-  (D32 item 8); `tawara.sh` fills in the platform, the minimum system and
-  the version.
+  (D32 item 8), and the status bar keys, which keep the clock and icons
+  light on the dark screens (D27 item 8); `tawara.sh` fills in the platform,
+  the minimum system and the version.
 - `tawara.sh`: `device` (built and linked for a phone; installing it needs
   signing, phase 5's) and `simulator` (bundled, signed ad hoc, run on a
   simulator with the checks CI runs, `.github/workflows/mobile.yml`).
