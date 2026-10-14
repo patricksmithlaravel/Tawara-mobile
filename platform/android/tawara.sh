@@ -4,7 +4,7 @@
 #   platform/android/tawara.sh build      # libtawara_mobile.so, arm64-v8a and x86_64
 #   platform/android/tawara.sh apk        # the APK, signed with a throwaway debug key
 #   platform/android/tawara.sh emulator   # boot an emulator, install, run the checks
-#   platform/android/tawara.sh selftest   # the crash checks, on logged lines
+#   platform/android/tawara.sh selftest   # the crash and destroy checks, on logged lines
 #
 # No Java, Kotlin or Gradle: the activity is android.app.NativeActivity, the
 # APK is linked with aapt2 and zipped, aligned and signed by hand, as phase
@@ -39,14 +39,16 @@ LOG_BUFFERS=main,system,crash,events
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 OUT=${RUNNER_TEMP:-/tmp}/tawara-android
-SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:?ANDROID_HOME is not set}}
-export PATH="$SDK/platform-tools:$SDK/emulator:$SDK/cmdline-tools/latest/bin:$PATH"
+# build, apk and emulator need the SDK (need_sdk); selftest runs without it.
+SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
+[ -z "$SDK" ] || export PATH="$SDK/platform-tools:$SDK/emulator:$SDK/cmdline-tools/latest/bin:$PATH"
 LOG=$OUT/logcat.txt
 mkdir -p "$OUT"
 
 group() { echo "::group::$*"; }
 endgroup() { echo "::endgroup::"; }
 die() { echo "::error::$*"; exit 1; }
+need_sdk() { [ -n "$SDK" ] || die "ANDROID_HOME is not set"; }
 
 ndk_paths() {
   NDK=$(ls -d "$SDK"/ndk/29.* 2>/dev/null | sort -V | tail -1 || true)
@@ -526,9 +528,17 @@ runtime_keep() {
 # Name, OomAdj and ProcState. The component name is the activity's ComponentName
 # in its short form: here it is com.patricksmithlaravel.tawara/
 # android.app.NativeActivity, because that class name does not begin with the
-# package name, so the short form does not shorten it.
+# package name, so the short form does not shorten it. wm_destroy_activity
+# carries no PID, so 'destroyed' is not tied to PID by the line itself: it is
+# this run's destroy because the log is cleared just before Back, and because
+# the caller turns the verdict into 'restarted' when another process of the
+# application is alive afterwards. The selftest checks destroy_parse.
 destroy_state() {
-  ash logcat -b events -d -v threadtime | awk -v pid="$1" -v comp="$PKG/$ACTIVITY" '
+  ash logcat -b events -d -v threadtime | destroy_parse "$1"
+}
+# destroy_parse PID: destroy_state's verdict on the event-log lines on stdin.
+destroy_parse() {
+  awk -v pid="$1" -v comp="$PKG/$ACTIVITY" '
     state != "" { next }
     /wm_destroy_activity/ && match($0, /\[.*\]/) {
       n = split(substr($0, RSTART + 1, RLENGTH - 2), f, ",")
@@ -567,13 +577,13 @@ emulator_up() {
   sudo apt-get install -y -q --no-install-recommends libpulse0 libnss3 libxcomposite1 \
     libxcursor1 libxdamage1 libxi6 libxtst6 libxkbfile1 libgl1 libegl1 libasound2t64 \
     libbsd0 libxkbcommon-x11-0 libx11-xcb1 >/dev/null
-  emulator -version | head -1
+  emulator -version | sed -n 1p
   endgroup
 
   group "AVD and boot"
   echo no | avdmanager create avd --force -n tawara -k "$IMG"
   local avd_dir
-  avd_dir=$(avdmanager list avd | sed -n 's/^ *Path: \(.*tawara\.avd\)$/\1/p' | head -1)
+  avd_dir=$(avdmanager list avd | sed -n 's/^ *Path: \(.*tawara\.avd\)$/\1/p' | sed -n 1p)
   [ -n "$avd_dir" ] && [ -f "$avd_dir/config.ini" ] || { avdmanager list avd; die "cannot find the AVD"; }
   export ANDROID_AVD_HOME
   ANDROID_AVD_HOME=$(dirname "$avd_dir")
@@ -803,11 +813,11 @@ on_emulator() {
   # The process ends as soon as run_in returns, so the lock may not be done
   # by then. The check asks whether it is (D32 item 9). The first Back keeps
   # the activity, and the process lives on. With 'Don't keep activities' on,
-  # Back destroys the activity as it leaves the screen. crates.io winit
-  # 0.30.13 ignores that Destroy, so its loop does not end and the process
-  # stays (exit.ended); the fork's release that D32 item 9 moves to ends the
-  # loop on it, and the 'TAWARA exit' line then says whether the lock had
-  # finished. Whether it has is a race between the interface taking the
+  # Back destroys the activity as it leaves the screen. This build takes
+  # winit from the fork's git copy at d4ab3a0 (Cargo.lock), which ends its
+  # event loop when the activity is destroyed, so run_in returns and the
+  # process ends (exit.ended); the 'TAWARA exit' line says whether the lock
+  # had finished by then. Whether it has is a race between the interface taking the
   # worker's answer and the loop ending, so one run proves little: each of
   # the runs is a fresh process, and the checks give the count. A run counts
   # only if its own process logged the lock after Back, so that 'lock done'
@@ -935,8 +945,8 @@ on_emulator() {
   ! grep -q $'\tFAIL\t' "$OUT/results.tsv"
 }
 
-# selftest: the crash parser, no_crash and the abort check, on logged lines (D32
-# item 9 (j)). The first five 'Fatal signal' lines are copied from the emulator
+# selftest: the crash parser, no_crash, the abort check and destroy_parse, on
+# logged lines (D32 item 9 (j)). The first five 'Fatal signal' lines are copied from the emulator
 # run that reproduced the application's SIGABRT under std::process::exit: five
 # processes, two thread names, the application's name as the kernel keeps it.
 # The other three are made in the same form, since no run logged them: the
@@ -944,8 +954,10 @@ on_emulator() {
 # name but was written by pid 1000, so the PID column is not the crashing
 # process; and an abort under the package's first 15 characters, which the
 # kernel did not give the application in that run, so it counts as the
-# application's only once the run has read that name from /proc. A result that
-# differs fails the script.
+# application's only once the run has read that name from /proc. The event-log
+# lines are run 1's of the merge of main (#11, #12): the launcher's destroy,
+# the application's destroy after Back with 'Don't keep activities' on, and its
+# process's death. A result that differs fails the script.
 selftest() {
   local dir=$OUT/selftest failed=0 got
   mkdir -p "$dir"
@@ -981,6 +993,18 @@ LOGCAT
   no_crash_check 2060 >/dev/null
   got="$got $(tail -1 "$OUT/results.tsv" | cut -f2)"
   selfcheck selftest.no_crash "FAIL PASS" "$got" "no_crash on the whole log, and on the system server's abort alone"
+  local ev=$dir/events.txt
+  cat >"$ev" <<'EVENTS'
+10-13 21:01:41.313   648   700 I wm_destroy_activity: [0,101443555,2,com.google.android.apps.nexuslauncher/.NexusLauncherActivity,always-finish]
+10-13 21:01:46.850   648   700 I wm_destroy_activity: [0,85398786,9,com.patricksmithlaravel.tawara/android.app.NativeActivity,always-finish]
+10-13 21:01:46.878   648   744 I am_proc_died: [0,1880,com.patricksmithlaravel.tawara,900,18]
+EVENTS
+  got="$(destroy_parse 1880 <"$ev") $(destroy_parse 99999 <"$ev")"
+  got="$got $(sed -n 3p "$ev" | cat - "$ev" | destroy_parse 1880)"
+  got="$got $(sed -e '2!d' -e 's/always-finish/finish-imm:transit/' "$ev" | destroy_parse 1880)"
+  got="$got $(sed -n 1p "$ev" | destroy_parse 1880)"
+  selfcheck selftest.destroy "destroyed destroyed died none none" "$got" \
+    "the run's destroy, the same lines for a PID they do not name, the process dead first, another reason, another activity"
   return "$failed"
 }
 # selfcheck NAME WANT GOT DETAIL: prints the selftest's CHECK line, and sets
@@ -995,9 +1019,9 @@ selfcheck() {
 }
 
 case ${1:-} in
-  build) build ;;
-  apk) apk ;;
-  emulator) on_emulator ;;
+  build) need_sdk; build ;;
+  apk) need_sdk; apk ;;
+  emulator) need_sdk; on_emulator ;;
   selftest) selftest ;;
   *) die "usage: $0 build|apk|emulator|selftest" ;;
 esac

@@ -17,10 +17,12 @@ D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
   with aapt2 against API 36's platform jar, which names `assetsPaths` and is
   installed with sdkmanager when missing, while the target stays at 35;
   aligned, signed with a throwaway debug key: for the emulator and the
-  owner's device check, never for distribution) and `emulator` (the checks
+  owner's device check, never for distribution), `emulator` (the checks
   CI runs, `.github/workflows/mobile.yml`, and the system's lines about the
   application after the first start, after the asset-path check and at the
-  end of the run, so that a start which ends says why).
+  end of the run, so that a start which ends says why) and `selftest` (the
+  crash, abort and destroy parsers on logged lines, with no SDK or device;
+  CI runs it before the emulator).
 
 What the Rust side does (`crates/mobile/src/android.rs`): `FLAG_SECURE` on
 the whole window (D32 item 4), the store in `no_backup/`, the clipboard
