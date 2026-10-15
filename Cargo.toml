@@ -27,13 +27,13 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At 80292d2: Tawara-wallet's `main` at pull request #23's merge commit. #23
-# carries the owner's share-sheet decisions of 2026-10-13 (D32 item 10 (i)),
-# and `Host::share` returns `Result<(), String>`, where `Ok` means the platform
-# was asked to show the sheet, not that it was shown. D32 item 9 (c) asks for
-# the pin to name that commit once #23 merges. It replaces the pin at 389f731,
-# Tawara-wallet's `main` at pull request #20's merge commit.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "80292d2c3c279ec61e0fa950ab3fa317a44e57eb" }
+# At a0fbb39: Tawara-wallet's `main` at pull request #30's merge commit. It
+# holds #27 to #30: the phone first run (D37 and D44, #28), the default node
+# (D43, #29), the QR code on Receive (D41, #27) and automatic settling (D38,
+# #30). It replaces the pin at 80292d2, Tawara-wallet's `main` at pull request
+# #23's merge commit, which carried the owner's share-sheet decisions (D32
+# item 10 (i)).
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "a0fbb39f1727bdafc3089e8b9c83239927683f80" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
