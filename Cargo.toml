@@ -40,7 +40,7 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # TEMPORARY. This pin holds until that pull request merges. Then it moves to
 # Tawara-wallet's `main` at the merge commit, and this comment is rewritten with
 # it. It replaces the pin at a0fbb39, which has none of those three items.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "63daf6090a8967392eec656909d3a9cb6f643315" }
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "ac05e37dc6765589c3e61235a665beb41f52d7a9" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
