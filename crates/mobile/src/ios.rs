@@ -5,8 +5,12 @@
 //! (docs/DECISIONS.md D4, D32, D44).
 //!
 //! Everything here runs on the main thread: [`main`] before winit's
-//! `UIApplicationMain`, and the notification blocks on the main queue. What
-//! this writes on stderr is one `TAWARA` line per fact, never a secret.
+//! `UIApplicationMain`, and the notification blocks on the main queue. The
+//! device unlock's check is the exception: it waits for the person, so it runs
+//! on a thread of its own (`keychain.rs`). What this writes on stderr is one
+//! `TAWARA` line per fact, never a secret.
+
+mod keychain;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -70,6 +74,10 @@ pub fn main() {
         share,
         back: || {},
         captured: Some(is_captured),
+        device_check: Some(keychain::device_check),
+        keep_password: Some(keychain::keep),
+        release_password: Some(keychain::release),
+        forget_password: Some(keychain::forget),
     };
     if let Err(error) = tawara_app::run_in(host) {
         eprintln!("TAWARA stop: {error}");

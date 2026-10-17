@@ -76,5 +76,10 @@
 	<string>UIStatusBarStyleLightContent</string>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<!-- Provisional wording, for the owner's approval (docs/DECISIONS.md D45
+	     item 6): the reason the system shows when the wallet's unlock asks
+	     for Face ID. -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>Tawara uses Face ID to unlock the wallet on this phone, when you have turned that on.</string>
 </dict>
 </plist>

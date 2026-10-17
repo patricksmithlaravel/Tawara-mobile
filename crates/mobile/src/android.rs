@@ -62,6 +62,11 @@ pub fn main(app: AndroidApp) {
         back,
         // Android reports no capture: FLAG_SECURE is its protection (D44 item 4).
         captured: None,
+        // Android offers no device unlock: no Java is added for it (D45 item 1).
+        device_check: None,
+        keep_password: None,
+        release_password: None,
+        forget_password: None,
     };
     if let Err(error) = tawara_app::run_in(host) {
         log_direct(&format!("TAWARA stop: {error}"));

@@ -7,12 +7,20 @@ Bundle identifier: `com.patricksmithlaravel.tawara` (D8).
 
 - `Info.plist.in`: the bundle's keys, among them the scene manifest
   without which UIKit stops an app linked with the iOS 27 SDK at launch
-  (D32 item 8), and the status bar keys, which keep the clock and icons
-  light on the dark screens (D27 item 8); `tawara.sh` fills in the platform,
-  the minimum system and the version.
+  (D32 item 8), the status bar keys, which keep the clock and icons light on
+  the dark screens (D27 item 8), and `NSFaceIDUsageDescription`, the usage
+  text an app must carry to use Face ID, which the device unlock needs
+  (D45 item 6; its wording is provisional until the owner approves it);
+  `tawara.sh` fills in the platform, the minimum system and the version.
 - `tawara.sh`: `device` (built and linked for a phone; installing it needs
   signing, phase 5's) and `simulator` (bundled, signed ad hoc, run on a
-  simulator with the checks CI runs, `.github/workflows/mobile.yml`).
+  simulator with the checks CI runs, `.github/workflows/mobile.yml`). Those
+  checks do not exercise the device unlock: `simctl` has no biometric command,
+  and Face ID is enrolled in the Simulator app's Features menu.
+- Frameworks: the device unlock links `Security` and `LocalAuthentication`
+  itself, with `#[link]` in `crates/mobile/src/ios/keychain.rs`, and reaches
+  them through `objc2` and `objc2-foundation` (whose `NSData` feature is new
+  in `Cargo.toml`). No framework is added to a project, since there is none.
 
 What the Rust side does (`crates/mobile/src/ios.rs`): the store under
 `Library/Application Support/Tawara`, made mode `0700`, protected with
@@ -29,6 +37,38 @@ screen reads come from `UIApplicationUserDidTakeScreenshotNotification` and
 `UIScreenCapturedDidChangeNotification` (D44 item 3). Putting winit's window in
 the window scene UIKit connects is the iced fork's, since winit 0.30 has no
 scene support of its own (D32 item 8); the app's part is the manifest.
+
+The device unlock (`crates/mobile/src/ios/keychain.rs`; docs/DECISIONS.md D45)
+fills the `Host` fields that offer the check and keep the store's password
+for it. Android leaves them empty, since it offers no device unlock (D45
+item 1). The check is the device's own, asked through `LAContext`: where the
+device has no passcode no check is offered; otherwise the check is Face ID or
+Touch ID where its biometry can be used, and the passcode where it cannot. The
+password is one generic-password item in the Keychain, under the service
+`com.patricksmithlaravel.tawara.unlock` and labelled with the store's
+identifier: the 32 random bytes the application keeps in its folder, which are
+not secret, written as lower-case hex. Its access control asks for the device's
+check (`kSecAccessControlUserPresence`), and the item is readable only while the
+device has a passcode, on this device only (D45 item 2). Keeping a password
+replaces what is kept, and an item under the service whose identifier belongs
+to another store is deleted, never used (D45 item 4). A release asks the check
+on a thread of its own, with the reason the application passes, and answers
+once. The copy made for the Keychain is wiped once the Keychain has taken its
+own, and a password read back moves into the wallet's zeroizing buffer at once.
+What this writes on stderr is `TAWARA unlock`, one line per fact, and no line
+carries a password or its bytes. The owner approved the six choices of the
+application side of the device unlock on 2026-10-17 (owner, 2026-10-17); the
+wording of the Face ID usage text stays provisional until the owner approves
+it (D45 item 6).
+
+On the simulator the Keychain refuses an add from a binary signed ad hoc with
+no entitlements, as `tawara.sh` signs the bundle: the add fails with -34018 (a
+required entitlement is not present), and no password is kept. That was seen
+for a test binary signed the same way; the bundle itself was not run through
+the add. The device unlock can keep a password on a simulator only once a
+signed build carries the entitlement it needs (phase 5's signing). `simctl`
+has no command for Face ID, so Face ID is enrolled in the Simulator app's
+Features menu, not from the command line.
 
 Phase 5's signed build adds the `com.apple.developer.default-data-protection`
 entitlement, so that every file the application makes is protected from
