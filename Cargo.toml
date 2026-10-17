@@ -27,18 +27,20 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At 399d206: Tawara-wallet's pull request #33, on its branch `work/ios-capture`,
-# which is not on `main` yet. The branch is `main` at a0fbb39 with two commits.
+# At 63daf60: Tawara-wallet's pull request #33, on its branch `work/ios-capture`,
+# which is not on `main` yet. The branch is `main` at a0fbb39 with four commits.
 # `main` at a0fbb39 is pull request #30's merge commit, and holds #27 to #30:
 # the phone first run (D37 and D44, #28), the default node (D43, #29), the QR
-# code on Receive (D41, #27) and automatic settling (D38, #30). The two commits
+# code on Receive (D41, #27) and automatic settling (D38, #30). The commits
 # add the application side of D44 item 3: `Host::captured`,
-# `screenshot_taken` and `capture_changed`, which crates/mobile/src/ios.rs calls.
+# `screenshot_taken` and `capture_changed`, which crates/mobile/src/ios.rs calls;
+# and the phone's recovery phrase after a screenshot, with the warning in the
+# words' place until "Show the phrase" is pressed (D44 item 1).
 #
 # TEMPORARY. This pin holds until that pull request merges. Then it moves to
 # Tawara-wallet's `main` at the merge commit, and this comment is rewritten with
 # it. It replaces the pin at a0fbb39, which has none of those three items.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "399d20666e8579b3b48d00ab74f1ed61991697c0" }
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "63daf6090a8967392eec656909d3a9cb6f643315" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
