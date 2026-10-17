@@ -27,20 +27,17 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At 63daf60: Tawara-wallet's pull request #33, on its branch `work/ios-capture`,
-# which is not on `main` yet. The branch is `main` at a0fbb39 with four commits.
-# `main` at a0fbb39 is pull request #30's merge commit, and holds #27 to #30:
-# the phone first run (D37 and D44, #28), the default node (D43, #29), the QR
-# code on Receive (D41, #27) and automatic settling (D38, #30). The commits
-# add the application side of D44 item 3: `Host::captured`,
-# `screenshot_taken` and `capture_changed`, which crates/mobile/src/ios.rs calls;
-# and the phone's recovery phrase after a screenshot, with the warning in the
-# words' place until "Show the phrase" is pressed (D44 item 1).
-#
-# TEMPORARY. This pin holds until that pull request merges. Then it moves to
-# Tawara-wallet's `main` at the merge commit, and this comment is rewritten with
-# it. It replaces the pin at a0fbb39, which has none of those three items.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "ac05e37dc6765589c3e61235a665beb41f52d7a9" }
+# At 130dae6: Tawara-wallet's `main` at the merge of pull request #33. Pull
+# request #34 (D39's phone W1) was merged to `main` before it, so `main` holds
+# D39's phone W1 and the application side of D44 (#33): `Host::captured`,
+# `screenshot_taken` and `capture_changed`, which crates/mobile/src/ios.rs
+# calls; the phone's recovery phrase after a screenshot, with the warning in the
+# words' place until "Show the phrase" is pressed (D44 item 1); and the words
+# hidden behind the warning on a phone held sideways. The pin is on `main`, so
+# it is not temporary. It moves when `main` is taken to a later commit, by a
+# change to `rev`, and this comment is rewritten with it. It replaces the pin at
+# ac05e37, which was pull request #33's branch and is not on `main`.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "130dae644c02172c4bb8464ea2c093907a2ca0b9" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
