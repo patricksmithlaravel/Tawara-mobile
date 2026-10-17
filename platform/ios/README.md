@@ -10,7 +10,9 @@ Bundle identifier: `com.patricksmithlaravel.tawara` (D8).
   (D32 item 8), the status bar keys, which keep the clock and icons light on
   the dark screens (D27 item 8), and `NSFaceIDUsageDescription`, the usage
   text an app must carry to use Face ID, which the device unlock needs
-  (D45 item 6; its wording is provisional until the owner approves it);
+  (D45 item 6; its wording is provisional until the owner approves it), and
+  `NSCameraUsageDescription`, the usage text the QR scanner's camera needs
+  (D42; provisional until the owner approves it);
   `tawara.sh` fills in the platform, the minimum system and the version.
 - `tawara.sh`: `device` (built and linked for a phone; installing it needs
   signing, phase 5's) and `simulator` (bundled, signed ad hoc, run on a
@@ -20,7 +22,9 @@ Bundle identifier: `com.patricksmithlaravel.tawara` (D8).
 - Frameworks: the device unlock links `Security` and `LocalAuthentication`
   itself, with `#[link]` in `crates/mobile/src/ios/keychain.rs`, and reaches
   them through `objc2` and `objc2-foundation` (whose `NSData` feature is new
-  in `Cargo.toml`). No framework is added to a project, since there is none.
+  in `Cargo.toml`). The QR scanner links `AVFoundation` the same way, in
+  `crates/mobile/src/ios/scan.rs`, with its bindings written by hand on
+  `objc2` (D42). No framework is added to a project, since there is none.
 
 What the Rust side does (`crates/mobile/src/ios.rs`): the store under
 `Library/Application Support/Tawara`, made mode `0700`, protected with
@@ -37,6 +41,17 @@ screen reads come from `UIApplicationUserDidTakeScreenshotNotification` and
 `UIScreenCapturedDidChangeNotification` (D44 item 3). Putting winit's window in
 the window scene UIKit connects is the iced fork's, since winit 0.30 has no
 scene support of its own (D32 item 8); the app's part is the manifest.
+
+The QR scanner (`crates/mobile/src/ios/scan.rs`; docs/DECISIONS.md D42) fills
+the `Host` fields that start a scan and stop it, and the one that says the
+shell draws the camera's preview. A scan is a full-screen modal over the key
+window, presented as the share sheet is, with the preview and a Cancel button.
+It is portrait only. The session starts and stops on a serial queue of its own,
+and the readings come on another. The first reading that holds one distinct
+text goes back to the application once; then the camera stops and the scanner
+goes. A scan stops in the same way when the person cancels it, when the
+application asks, and when the application goes to the background. The camera
+is asked for only when a scan starts. Android passes no scan yet.
 
 The device unlock (`crates/mobile/src/ios/keychain.rs`; docs/DECISIONS.md D45)
 fills the `Host` fields that offer the check and keep the store's password

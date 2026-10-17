@@ -15,8 +15,10 @@
 //!   `NSFileProtectionComplete` and excluded from backups (D32 item 3); a
 //!   cover over the window whenever the application is not active, so the
 //!   app switcher's snapshot shows nothing; the lock when it enters the
-//!   background; and the screenshot and capture reports that the recovery
-//!   phrase's screen reads (D44 item 3).
+//!   background; the QR scanner, whose camera stops when the scan ends and when
+//!   the application enters the background (`src/ios/scan.rs`, D42); and the
+//!   screenshot and capture reports that the recovery phrase's screen reads
+//!   (D44 item 3).
 //!
 //! Nothing here is Java, Kotlin, Swift or Objective-C (docs/DECISIONS.md
 //! D4): the platform calls are made from Rust, through JNI on Android and

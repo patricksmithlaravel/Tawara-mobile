@@ -27,19 +27,18 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# TEMPORARY, UNTIL TAWARA-WALLET PULL REQUEST #37 MERGES: Tawara-wallet's
-# `work/ios-unlock` at 1afa6bb, the head of pull request #37, the application
-# side of the device unlock (docs/DECISIONS.md D45). #37 merges after the iced
-# re-pin (#39) and the Send pages (#35), with a merge commit, so this commit is
-# on Tawara-wallet's `main` once #37 merges. It adds the `Host` fields
-# `device_check`, `keep_password`, `release_password` and `forget_password`,
-# which crates/mobile/src/ios/keychain.rs fills, and it re-exports `SecretText`
-# from `tawara_app::host`, the name keychain.rs builds the password with. At
-# f595dc1 that import was private, so the iOS targets did not compile. `main`
-# does not have the device-unlock fields yet, so this build does not compile
-# against `main`. When #37 merges, `rev` moves back to Tawara-wallet's `main` at
-# the merge commit, and this comment is rewritten with it.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "1afa6bb72fd4e4abb55eacec3e54280aa06b556b" }
+# TEMPORARY, UNTIL TAWARA-WALLET'S QR SCANNER PULL REQUEST MERGES: Tawara-wallet's
+# `work/qr-scan` at 2e5b07f, the scanner's application side (docs/DECISIONS.md
+# D42). It adds the `Host` fields `scan`, `cancel_scan` and `scan_preview`,
+# which crates/mobile/src/ios/scan.rs fills, and the checks a scanned text must
+# pass. It is on Tawara-wallet's `main` at d028a48, which has the device unlock
+# (pull request #37, merged; D45) that crates/mobile/src/ios/keychain.rs fills.
+# It also turns on iced's `image-without-codecs` feature, for the Android
+# preview (D42 item 5), so Cargo.lock gains six crates: image, byteorder-lite,
+# kamadak-exif, moxcms, mutate_once and pxfm. When the scanner's pull request
+# merges, `rev` moves back to Tawara-wallet's `main` at the merge commit, and
+# this comment is rewritten with it.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "2e5b07f43852ed306c4ef91d08d5ee9fd2928ac9" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
@@ -93,7 +92,11 @@ objc2-ui-kit = { version = "0.2.2", features = [
     "UIActivity",
     "UIActivityViewController",
     "UIApplication",
+    "UIButton",
     "UIColor",
+    "UIControl",
+    "UIGeometry",
+    "UIOrientation",
     "UIPasteboard",
     "UIResponder",
     "UIScene",

@@ -67,6 +67,11 @@ pub fn main(app: AndroidApp) {
         keep_password: None,
         release_password: None,
         forget_password: None,
+        // Android's scanner is not built yet (docs/DECISIONS.md D42): no scan, so
+        // the application offers none.
+        scan: None,
+        cancel_scan: None,
+        scan_preview: None,
     };
     if let Err(error) = tawara_app::run_in(host) {
         log_direct(&format!("TAWARA stop: {error}"));
