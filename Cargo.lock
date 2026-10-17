@@ -1867,7 +1867,7 @@ dependencies = [
 [[package]]
 name = "mochimo-crypto"
 version = "2.0.0"
-source = "git+https://github.com/patricksmithlaravel/mcm-rust-cli-windows?rev=7cdc2e986319d508e4c197a4ba44220dd49a5b1d#7cdc2e986319d508e4c197a4ba44220dd49a5b1d"
+source = "git+https://github.com/patricksmithlaravel/mcm-rust-cli-windows?rev=613e8bd7d3379a3d1cb88803319931f817a48255#613e8bd7d3379a3d1cb88803319931f817a48255"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -3191,7 +3191,7 @@ dependencies = [
 [[package]]
 name = "tawara-app"
 version = "0.1.0"
-source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=f595dc120f1be563a243ac2903796acf16d34f63#f595dc120f1be563a243ac2903796acf16d34f63"
+source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=9fd3e693fa9383a7335ef7ffea131ad40b1563a3#9fd3e693fa9383a7335ef7ffea131ad40b1563a3"
 dependencies = [
  "chrono",
  "iced",
@@ -3218,7 +3218,7 @@ dependencies = [
 [[package]]
 name = "tawara-wallet-core"
 version = "0.1.0"
-source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=f595dc120f1be563a243ac2903796acf16d34f63#f595dc120f1be563a243ac2903796acf16d34f63"
+source = "git+https://github.com/patricksmithlaravel/Tawara-wallet?rev=9fd3e693fa9383a7335ef7ffea131ad40b1563a3#9fd3e693fa9383a7335ef7ffea131ad40b1563a3"
 dependencies = [
  "getrandom 0.2.17",
  "mochimo-crypto",

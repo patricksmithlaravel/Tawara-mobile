@@ -28,14 +28,16 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
 # TEMPORARY, UNTIL TAWARA-WALLET PULL REQUEST #37 MERGES: Tawara-wallet's
-# `work/ios-unlock` at f595dc1, the application side of the device unlock
+# `work/ios-unlock` at 9fd3e69, the application side of the device unlock
 # (docs/DECISIONS.md D45). It adds the `Host` fields `device_check`,
 # `keep_password`, `release_password` and `forget_password`, which
-# crates/mobile/src/ios/keychain.rs fills. `main` does not have them yet, so
-# this build does not compile against `main`. When #37 merges, `rev` moves back
-# to Tawara-wallet's `main` at the merge commit, and this comment is rewritten
-# with it.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "f595dc120f1be563a243ac2903796acf16d34f63" }
+# crates/mobile/src/ios/keychain.rs fills, and it re-exports `SecretText` from
+# `tawara_app::host`, the name keychain.rs builds the password with. At f595dc1
+# that import was private, so the iOS targets did not compile. `main` does not
+# have the device-unlock fields yet, so this build does not compile against
+# `main`. When #37 merges, `rev` moves back to Tawara-wallet's `main` at the
+# merge commit, and this comment is rewritten with it.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "9fd3e693fa9383a7335ef7ffea131ad40b1563a3" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
