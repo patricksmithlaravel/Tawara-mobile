@@ -27,27 +27,31 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# At 130dae6: Tawara-wallet's `main` at the merge of pull request #33. Pull
-# request #34 (D39's phone W1) was merged to `main` before it, so `main` holds
-# D39's phone W1 and the application side of D44 (#33): `Host::captured`,
-# `screenshot_taken` and `capture_changed`, which crates/mobile/src/ios.rs
-# calls; the phone's recovery phrase after a screenshot, with the warning in the
-# words' place until "Show the phrase" is pressed (D44 item 1); and the words
-# hidden behind the warning on a phone held sideways. The pin is on `main`, so
-# it is not temporary. It moves when `main` is taken to a later commit, by a
-# change to `rev`, and this comment is rewritten with it. It replaces the pin at
-# ac05e37, which was pull request #33's branch and is not on `main`.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "130dae644c02172c4bb8464ea2c093907a2ca0b9" }
+# TEMPORARY, UNTIL TAWARA-WALLET PULL REQUEST #37 MERGES: Tawara-wallet's
+# `work/ios-unlock` at 1afa6bb, the head of pull request #37, the application
+# side of the device unlock (docs/DECISIONS.md D45). #37 merges after the iced
+# re-pin (#39) and the Send pages (#35), with a merge commit, so this commit is
+# on Tawara-wallet's `main` once #37 merges. It adds the `Host` fields
+# `device_check`, `keep_password`, `release_password` and `forget_password`,
+# which crates/mobile/src/ios/keychain.rs fills, and it re-exports `SecretText`
+# from `tawara_app::host`, the name keychain.rs builds the password with. At
+# f595dc1 that import was private, so the iOS targets did not compile. `main`
+# does not have the device-unlock fields yet, so this build does not compile
+# against `main`. When #37 merges, `rev` moves back to Tawara-wallet's `main` at
+# the merge commit, and this comment is rewritten with it.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "1afa6bb72fd4e4abb55eacec3e54280aa06b556b" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
 #
 # `iced_winit` comes from the owner's iced fork at the commit Tawara-wallet
-# pins for `iced` (D32 items 1, 8 and 9), so the build holds one copy of every
-# iced crate, and one winit with them; the policy test holds the lockfile to
-# it. Android: the fork's `set_android_app` and `on_lifecycle`, winit's
-# NativeActivity backend, which the `android-native-activity` feature turns on,
-# and JNI for the clipboard, the share sheet and Back. The backend is chosen by
+# pins for `iced` (D32 items 1, 8 and 9), the fork's release
+# `v0.14.1-mobile.4`, so the build holds one copy of every iced crate, and one
+# winit with them; the policy test holds the lockfile to it. That release has
+# no mundy, so no zbus reaches the build (the owner, 2026-10-17). Android: the
+# fork's `set_android_app` and `on_lifecycle`, winit's NativeActivity backend,
+# which the `android-native-activity` feature turns on, and JNI for the
+# clipboard, the share sheet and Back. The backend is chosen by
 # that feature rather than by feature unification, because exactly one
 # android-activity backend must be on. iOS: the fork puts winit's window in
 # UIKit's window scene; the shell uses the versions winit 0.30.13 already links,
@@ -58,7 +62,7 @@ tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev
 # winit has no line of its own. It is the fork's vendored copy, reached as
 # `iced_winit::winit`, and a crates.io winit beside it would be a second copy
 # of winit in the build (D32 item 9 (b)).
-iced_winit = { git = "https://github.com/patricksmithlaravel/iced_mobile", rev = "d4ab3a057db96162b087a27dd0752a3b15abfa6b", default-features = false, features = ["android-native-activity"] }
+iced_winit = { git = "https://github.com/patricksmithlaravel/iced_mobile", rev = "7325ccd5823a118d46f023e91010d27f07b6dd90", default-features = false, features = ["android-native-activity"] }
 jni = "0.22.4"
 ndk-context = "0.1.1"
 # The Android entry calls `_exit`, which ends the process without the C
@@ -69,6 +73,7 @@ objc2 = "0.5.2"
 block2 = "0.5.1"
 objc2-foundation = { version = "0.2.2", features = [
     "NSArray",
+    "NSData",
     "NSDate",
     "NSDictionary",
     "NSError",
