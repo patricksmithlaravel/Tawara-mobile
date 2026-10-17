@@ -12,8 +12,12 @@
 # activity and process (platform/android/tawara.sh `trace`, which keeps the
 # lines that name the application or come from its processes, and the overlay
 # commits, which name none), and the iOS screenshots as base64 between
-# `-----BEGIN SHOT name-----` markers. Android's screens cannot be captured:
-# FLAG_SECURE blanks them (D32 item 4), which is one of the checks.
+# `-----BEGIN SHOT name-----` markers. On Android the window is marked
+# FLAG_SECURE, which asks the system to keep it out of screenshots, recordings
+# and the recent-apps thumbnail (D32 item 4); the emulator run checks that the
+# flag is set. The flag does not stop every recording (docs/DECISIONS.md D44
+# item 4), so a green run does not show that a recording of the screen would
+# come out blank.
 #
 # WHAT A GREEN RUN SAYS. That this commit builds for Android (arm64 and
 # x86_64) and iOS (device and simulator); that on an x86_64 emulator and an

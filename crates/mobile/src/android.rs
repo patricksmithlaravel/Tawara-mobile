@@ -33,8 +33,13 @@ static LEAVING: Mutex<Option<Leaving>> = Mutex::new(None);
 
 /// Start the application in the activity android-activity has created.
 pub fn main(app: AndroidApp) {
-    // No screenshot or recording of any screen, and no recent-apps
-    // thumbnail (D32 item 4). Before the first frame, so none is taken.
+    // FLAG_SECURE on the window (D32 item 4). It asks the system to keep the
+    // window out of screenshots, out of recordings and out of the recent-apps
+    // thumbnail. It does not stop every recording: Android's guide to securing
+    // sensitive activities says that in some cases the flag does not correctly
+    // predict whether screen recording is active, and that on Android 11 (API
+    // 30) and lower it helps around 70% of devices reliably
+    // (docs/DECISIONS.md D44 item 4). Before the first frame, so none is taken.
     app.set_window_flags(WindowManagerFlags::SECURE, WindowManagerFlags::empty());
     let Some(private_dir) = private_dir(&app) else {
         // Written directly, as the exit line is: `_exit` follows at once (see
@@ -55,6 +60,8 @@ pub fn main(app: AndroidApp) {
         copy,
         share,
         back,
+        // Android reports no capture: FLAG_SECURE is its protection (D44 item 4).
+        captured: None,
     };
     if let Err(error) = tawara_app::run_in(host) {
         log_direct(&format!("TAWARA stop: {error}"));
