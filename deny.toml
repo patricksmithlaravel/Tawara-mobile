@@ -46,7 +46,8 @@ all-features = true
 # reason written beside it (docs/PLAN.md section 6: "Every entry in `ignore`
 # carries a written reason"). Both are maintenance notices, not
 # vulnerabilities, and both arrive with the iced fork at its pin, the release
-# v0.14.1-mobile.2 (Tawara-wallet's docs/DECISIONS.md D32, item 9). FORK.md
+# v0.14.1-mobile.4 (Tawara-wallet's docs/DECISIONS.md D32, item 9), where
+# both were re-examined on 2026-10-17 and are still needed. FORK.md
 # R2-2, in Rep-0, measured iced as tripping `unmaintained` twice before this
 # repository existed. At the pin these are still the only two, and removing
 # either one makes `cargo deny` fail. Each is re-examined when the iced pin
