@@ -1,7 +1,8 @@
 //! iOS: the store's directory, its protection and backup exclusion, the
-//! pasteboard, the share sheet, the app-switcher cover and the lock, through
-//! the Objective-C runtime with no Swift or Objective-C source
-//! (docs/DECISIONS.md D4, D32).
+//! pasteboard, the share sheet, the app-switcher cover, the lock, and the
+//! screenshot and capture reports that the recovery phrase's screen reads,
+//! through the Objective-C runtime with no Swift or Objective-C source
+//! (docs/DECISIONS.md D4, D32, D44).
 //!
 //! Everything here runs on the main thread: [`main`] before winit's
 //! `UIApplicationMain`, and the notification blocks on the main queue. What
@@ -26,9 +27,10 @@ use objc2_foundation::{
 use objc2_ui_kit::{
     UIActivityTypeCopyToPasteboard, UIActivityViewController, UIApplication,
     UIApplicationDidBecomeActiveNotification, UIApplicationDidEnterBackgroundNotification,
-    UIApplicationWillResignActiveNotification, UIBackgroundTaskInvalid, UIColor, UIPasteboard,
-    UIPasteboardOptionExpirationDate, UIPasteboardOptionLocalOnly, UIView, UIViewAutoresizing,
-    UIWindow,
+    UIApplicationUserDidTakeScreenshotNotification, UIApplicationWillResignActiveNotification,
+    UIBackgroundTaskInvalid, UIColor, UIPasteboard, UIPasteboardOptionExpirationDate,
+    UIPasteboardOptionLocalOnly, UIScreen, UIScreenCapturedDidChangeNotification, UIView,
+    UIViewAutoresizing, UIWindow,
 };
 use tawara_app::Host;
 
@@ -67,6 +69,7 @@ pub fn main() {
         copy,
         share,
         back: || {},
+        captured: Some(is_captured),
     };
     if let Err(error) = tawara_app::run_in(host) {
         eprintln!("TAWARA stop: {error}");
@@ -320,15 +323,17 @@ fn key_window(mtm: MainThreadMarker) -> Option<Retained<UIWindow>> {
     }
 }
 
-/// `UIApplication`'s notices, on the main queue. winit hears them too, and two
-/// of them reach iced as `Suspended` and `Resumed` events, which iced passes
-/// on through `on_lifecycle` and `lifecycle()`. Tawara uses neither on iOS (D32
-/// item 9 (d)), so these observers act on the notices. The observers live as
-/// long as the process.
+/// `UIApplication`'s and `UIScreen`'s notices, on the main queue. winit hears
+/// the first three too, and two of them reach iced as `Suspended` and
+/// `Resumed` events, which iced passes on through `on_lifecycle` and
+/// `lifecycle()`. Tawara uses neither on iOS (D32 item 9 (d)), so these
+/// observers act on the notices. The last two report the screenshots and the
+/// capture that the recovery phrase's screen reads (docs/DECISIONS.md D44
+/// item 3). The observers live as long as the process.
 fn observe(mtm: MainThreadMarker) {
     type Notice = (&'static NSNotificationName, fn(MainThreadMarker));
     // SAFETY: the notification names are UIKit's own constants.
-    let notices: [Notice; 3] = unsafe {
+    let notices: [Notice; 5] = unsafe {
         [
             (UIApplicationWillResignActiveNotification, cover),
             (
@@ -336,6 +341,8 @@ fn observe(mtm: MainThreadMarker) {
                 entered_background,
             ),
             (UIApplicationDidBecomeActiveNotification, uncover),
+            (UIApplicationUserDidTakeScreenshotNotification, screenshot),
+            (UIScreenCapturedDidChangeNotification, captured_changed),
         ]
     };
     // SAFETY: the main queue and the default center are always valid.
@@ -505,6 +512,47 @@ impl Task {
             }
         }
     }
+}
+
+/// A screenshot was taken. UIKit posts the notice after the capture, so it
+/// cannot stop the capture. The application warns on the recovery phrase's
+/// screen when the words were on it (docs/DECISIONS.md D44 item 3).
+fn screenshot(_: MainThreadMarker) {
+    eprintln!("TAWARA capture: screenshot taken");
+    tawara_app::screenshot_taken();
+}
+
+/// The screen started or stopped being recorded or mirrored. The application
+/// hides the recovery phrase's words while the screen is captured. iOS can
+/// read the screen as not captured while a recording runs, so this is best
+/// effort (docs/DECISIONS.md D44 item 3).
+fn captured_changed(mtm: MainThreadMarker) {
+    let captured = is_captured_on(mtm);
+    eprintln!("TAWARA capture: captured={captured}");
+    tawara_app::capture_changed(captured);
+}
+
+/// The screen's capture state as the application starts, through
+/// `Host::captured`. Off the main thread, where UIKit's screen cannot be
+/// read, the state reads as not captured, and the next change still reaches
+/// the application.
+fn is_captured() -> bool {
+    let captured = MainThreadMarker::new().is_some_and(is_captured_on);
+    eprintln!("TAWARA capture: captured={captured} at start");
+    captured
+}
+
+/// Whether the main screen is captured, by recording, mirroring or AirPlay:
+/// `UIScreen.mainScreen.isCaptured`, as docs/DECISIONS.md D44 item 3 names it.
+/// The SDK deprecates both calls: `mainScreen` from iOS 26, in favour of a
+/// screen found through context, and `isCaptured` in favour of
+/// `UITraitCollection.sceneCaptureState`, which needs iOS 17. Tawara's minimum
+/// is iOS 16.0, the default `IPHONEOS_DEPLOYMENT_TARGET` in
+/// platform/ios/tawara.sh, so the deprecated calls stay until that moves.
+#[allow(deprecated)]
+fn is_captured_on(mtm: MainThreadMarker) -> bool {
+    // SAFETY: UIKit calls on the main thread, where the screen is read.
+    unsafe { UIScreen::mainScreen(mtm).isCaptured() }
 }
 
 /// The application's background colour, as `UIColor` takes it.
