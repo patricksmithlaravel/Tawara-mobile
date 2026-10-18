@@ -25,7 +25,8 @@
          camera still installs the application, and its scanner says there is
          none. Without the explicit entry for android.hardware.camera, the
          system would take the feature as required, because the permission
-         asks for the camera. -->
+         asks for the camera. android.hardware.camera is declared not
+         required, beside android.hardware.camera.any (owner, 2026-10-18). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
