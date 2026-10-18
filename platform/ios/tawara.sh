@@ -22,6 +22,10 @@ BIN=tawara
 BUNDLE=com.patricksmithlaravel.tawara
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
+# The build number (docs/RELEASE.md section 5.2): bn_number gives the number
+# CFBundleVersion takes, see platform/build-number.sh.
+# shellcheck source=../build-number.sh
+. "$ROOT/platform/build-number.sh"
 OUT=${RUNNER_TEMP:-/tmp}/tawara-ios
 export IPHONEOS_DEPLOYMENT_TARGET=${IPHONEOS_DEPLOYMENT_TARGET:-16.0}
 mkdir -p "$OUT/shots"
@@ -146,13 +150,18 @@ simulator() {
   [ "$(platform_of "$exe")" = 7 ] || die "$exe: platform $(platform_of "$exe"), expected 7"
 
   group "bundle and sign"
-  local app=$OUT/Tawara.app
+  local app=$OUT/Tawara.app build
+  # The development number, or a store build's committed counter (see the
+  # sourced platform/build-number.sh); a refused number ends the script here.
+  build=$(bn_number)
   rm -rf "$app"
   mkdir -p "$app"
   cp "$exe" "$app/$BIN"
   sed -e 's/@PLATFORM@/iPhoneSimulator/' -e "s/@MINOS@/$IPHONEOS_DEPLOYMENT_TARGET/" \
-    -e "s/@VERSION@/$(version)/" platform/ios/Info.plist.in >"$app/Info.plist"
+    -e "s/@VERSION@/$(version)/" -e "s/@BUILD@/$build/" platform/ios/Info.plist.in >"$app/Info.plist"
   plutil -lint "$app/Info.plist"
+  check bundle.build "CFBundleVersion is '$build'" \
+    test "$(plutil -extract CFBundleVersion raw -o - "$app/Info.plist")" = "$build"
   # Without the scene manifest, an app linked with the iOS 27 SDK is
   # stopped by UIKit at launch (D32 item 8); older SDKs still run it, so the
   # simulator alone would not catch its loss.

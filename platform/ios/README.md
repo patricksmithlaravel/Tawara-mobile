@@ -13,7 +13,8 @@ Bundle identifier: `com.patricksmithlaravel.tawara` (D8).
   (D45 item 6; its wording is provisional until the owner approves it), and
   `NSCameraUsageDescription`, the usage text the QR scanner's camera needs
   (D42; provisional until the owner approves it);
-  `tawara.sh` fills in the platform, the minimum system and the version.
+  `tawara.sh` fills in the platform, the minimum system, the version and the
+  build number, which is `CFBundleVersion` (`platform/build-number.sh`).
 - `tawara.sh`: `device` (built and linked for a phone; installing it needs
   signing, phase 5's) and `simulator` (bundled, signed ad hoc, run on a
   simulator with the checks CI runs, `.github/workflows/mobile.yml`). Those

@@ -19,7 +19,8 @@ D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
   (D21).
 - `tawara.sh`: `build` (the library for arm64-v8a and x86_64), `apk` (linked
   with aapt2 against API 36's platform jar, which names `assetsPaths` and is
-  installed with sdkmanager when missing, while the target stays at 35;
+  installed with sdkmanager when missing, while the target stays at 35, and
+  with the build number as its `versionCode`, from `platform/build-number.sh`;
   aligned, signed with a throwaway debug key: for the emulator and the
   owner's device check, never for distribution), `emulator` (the checks
   CI runs, `.github/workflows/mobile.yml`, and the system's lines about the

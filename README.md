@@ -66,6 +66,15 @@ platform/ios/tawara.sh device      # build and link for a phone
 platform/ios/tawara.sh simulator   # bundle, boot a simulator, run the checks
 ```
 
+The build number is `CFBundleVersion` on iOS and `versionCode` on Android.
+Each upload to either store takes the next one. `platform/build-number` holds
+the last number uploaded, and `platform/build-number.sh bump N` raises it,
+only to the number after it. A debug or CI build takes the development number,
+1. A store build sets `TAWARA_BUILD_NUMBER` to the committed counter, and both
+platform scripts refuse any other value. Where the counter lives awaits the
+owner's decision (Tawara-wallet's `docs/RELEASE.md` section 5.2 names the
+integer and no file).
+
 CI runs all of these (`.github/workflows/mobile.yml`), with no third-party
 actions (D13).
 

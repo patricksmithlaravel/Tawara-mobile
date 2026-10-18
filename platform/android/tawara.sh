@@ -38,6 +38,10 @@ TAG=RustStdoutStderr
 LOG_BUFFERS=main,system,crash,events
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
+# The build number (docs/RELEASE.md section 5.2): bn_number gives the number
+# versionCode takes, see platform/build-number.sh.
+# shellcheck source=../build-number.sh
+. "$ROOT/platform/build-number.sh"
 OUT=${RUNNER_TEMP:-/tmp}/tawara-android
 # build, apk and emulator need the SDK (need_sdk); selftest runs without it.
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
@@ -97,7 +101,10 @@ build() {
 apk() {
   ndk_paths
   cd "$ROOT"
-  local bt jar w=$OUT/apk
+  local bt jar w=$OUT/apk build badging
+  # The development number, or a store build's committed counter (see the
+  # sourced platform/build-number.sh); a refused number ends the script here.
+  build=$(bn_number)
   bt=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
   # aapt2 links against API 36's jar, pinned rather than the newest one
   # installed, because it knows assetsPaths from that platform only (D32 item 9
@@ -112,7 +119,7 @@ apk() {
     (yes 2>/dev/null || true) | sdkmanager --install "platforms;android-36" >/dev/null
   fi
   [ -f "$jar" ] || die "no android-36 platform in $SDK/platforms (sdkmanager 'platforms;android-36')"
-  echo "build-tools $bt; platform $jar"
+  echo "build-tools $bt; platform $jar; build number $build"
   rm -rf "$w"
   mkdir -p "$w/root/lib" "$w/res"
   for t in "${TARGETS[@]}"; do
@@ -131,7 +138,7 @@ apk() {
   # with run-as; a release build (phase 5) is not.
   "$bt/aapt2" link -o "$w/unsigned.apk" -I "$jar" --manifest platform/android/AndroidManifest.xml \
     -R "$w"/res/*.flat --min-sdk-version "$MIN_API" --target-sdk-version "$TARGET_API" --debug-mode \
-    --version-code 1 --version-name "$(cargo metadata --no-deps --format-version 1 \
+    --version-code "$build" --version-name "$(cargo metadata --no-deps --format-version 1 \
       | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="tawara-mobile"))')"
   # Stored, not deflated, and 16 KB-aligned: the manifest says
   # extractNativeLibs="false", so the system maps the libraries in place.
@@ -141,7 +148,14 @@ apk() {
     --ks-key-alias androiddebugkey --v4-signing-enabled false --out "$OUT/tawara.apk" "$w/aligned.apk"
   "$bt/apksigner" verify "$OUT/tawara.apk"
   "$bt/zipalign" -c -P 16 4 "$OUT/tawara.apk"
-  "$bt/aapt2" dump badging "$OUT/tawara.apk" | grep -E "^package:|targetSdk|native-code|uses-permission"
+  badging=$("$bt/aapt2" dump badging "$OUT/tawara.apk")
+  # The versionCode the badging reports must be the build number, as iOS's
+  # CFBundleVersion is. A case pattern, not grep -q, so that no pipe closes early.
+  case $badging in
+    *"versionCode='$build'"*) ;;
+    *) die "$OUT/tawara.apk: the versionCode is not $build" ;;
+  esac
+  printf '%s\n' "$badging" | grep -E "^package:|targetSdk|native-code|uses-permission"
   "$bt/aapt2" dump xmltree --file AndroidManifest.xml "$OUT/tawara.apk" >"$OUT/manifest.txt"
   ls -la "$OUT/tawara.apk"
 }
