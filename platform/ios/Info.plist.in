@@ -81,5 +81,12 @@
 	     for Face ID. -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>Tawara uses Face ID to unlock the wallet on this phone, when you have turned that on.</string>
+	<!-- Provisional wording, for the owner's approval (docs/DECISIONS.md D42):
+	     the reason the system shows when the scanner asks for the camera. The
+	     key must be here: without it the system stops the application at the
+	     request. No camera is required of the device, since the wallet runs
+	     without one, so UIRequiredDeviceCapabilities names none. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Tawara uses the camera to read a QR code with a destination address, when you choose to scan one.</string>
 </dict>
 </plist>
