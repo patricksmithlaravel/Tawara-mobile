@@ -28,8 +28,10 @@
 //! calls them. The scan's thread polls and reads. The camera's callbacks run on
 //! the NDK's threads: they read a frame's luminance, give its preview, and hand
 //! the frame to the scan's thread through `Inbox`, which keeps only the latest
-//! frame. `Camera`'s `Drop` releases every NDK object, on whichever thread ends
-//! the scan.
+//! frame. A callback finds its camera's `Inbox` through `CAMERAS`, under a key
+//! that is a number and never a pointer, and `Camera`'s `Drop` removes the key
+//! before it releases the reader. `Camera`'s `Drop` releases every NDK object, on
+//! whichever thread ends the scan.
 //!
 //! What this writes on stderr is one `TAWARA scan` line per fact, never a text
 //! that was read.
@@ -38,7 +40,7 @@ use std::ffi::{CStr, CString, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::slice;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -133,6 +135,17 @@ static SCAN: Mutex<Option<Scan>> = Mutex::new(None);
 
 /// The number of the last scan begun.
 static SCANS: AtomicU64 = AtomicU64::new(0);
+
+/// The inboxes of the open cameras, each under the key its callbacks are given. A
+/// callback finds its inbox here, and reads its camera's reader only while this
+/// lock is held. `Camera`'s `Drop` removes the camera's key under the same lock
+/// before it deletes the reader, so no callback reads a deleted reader. An inbox
+/// stays alive while a callback holds its own clone of it.
+static CAMERAS: Mutex<Vec<(usize, Arc<Inbox>)>> = Mutex::new(Vec::new());
+
+/// The last key given to a camera. A key is a number, never a pointer, and it is
+/// never given twice, so a callback that arrives late finds no inbox.
+static KEYS: AtomicUsize = AtomicUsize::new(0);
 
 /// What `Host::scan` is: starts a scan, and gives back its text through `done`,
 /// once. It returns at once. `Err` says why the scan did not start, in words for
@@ -253,6 +266,34 @@ fn forget(number: u64) {
 /// The scan under way, locked for a read or a change only.
 fn scan_slot() -> MutexGuard<'static, Option<Scan>> {
     SCAN.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The registry of the open cameras, locked. It is held only to find, add or remove
+/// an entry, or, in the image callback, while the reader is used.
+fn cameras() -> MutexGuard<'static, Vec<(usize, Arc<Inbox>)>> {
+    CAMERAS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Gives a new camera its key, with `inbox` registered under it.
+fn register(inbox: &Arc<Inbox>) -> usize {
+    let key = KEYS.fetch_add(1, Ordering::SeqCst) + 1;
+    cameras().push((key, Arc::clone(inbox)));
+    key
+}
+
+/// Removes the key of a camera that is being released, so that no callback uses
+/// its reader or finds its inbox from now on. The lock is taken only after any
+/// callback that is reading the reader has finished with it.
+fn unregister(key: usize) {
+    cameras().retain(|(entry, _)| *entry != key);
+}
+
+/// The inbox of the camera `key` names, while that camera is open.
+fn inbox_of(key: usize) -> Option<Arc<Inbox>> {
+    cameras()
+        .iter()
+        .find(|(entry, _)| *entry == key)
+        .map(|(_, inbox)| Arc::clone(inbox))
 }
 
 /// Logs a refusal, and returns it for the application.
@@ -525,11 +566,11 @@ impl Drop for Manager {
     }
 }
 
-/// A camera that is open for a scan, and the NDK objects it holds. `Drop`
-/// releases them in the order the NDK needs: the session and the device first,
-/// so that no frame is written once the reader it feeds is deleted, and the
-/// reader before the context its callbacks read. A null handle was never made,
-/// and is not released. The manager is released last, as the field below it.
+/// A camera that is open for a scan, and the NDK objects it holds. `Drop` first
+/// removes the camera's key from `CAMERAS`, so that no callback reads the reader
+/// after this. It then releases the NDK objects in the order the NDK needs: the
+/// session and the device, then the reader. A null handle was never made, and is
+/// not released. The manager is released last, as the field below it.
 struct Camera {
     manager: Manager,
     device: *mut ACameraDevice,
@@ -539,9 +580,9 @@ struct Camera {
     container: *mut ACaptureSessionOutputContainer,
     output: *mut ACaptureSessionOutput,
     reader: *mut AImageReader,
-    /// The `Inbox` the callbacks write to, from `Arc::into_raw`. Its count is given
-    /// back once the reader is deleted.
-    inbox: *const Inbox,
+    /// The key the callbacks are given, under which `CAMERAS` holds the `Inbox` they
+    /// write to. Zero when none was given.
+    key: usize,
     /// The callbacks' structs. They live on the heap, since the NDK may keep their
     /// addresses, and they are kept until the camera is released.
     listener: Option<Box<AImageReader_ImageListener>>,
@@ -565,7 +606,7 @@ impl Camera {
             container: ptr::null_mut(),
             output: ptr::null_mut(),
             reader: ptr::null_mut(),
-            inbox: ptr::null(),
+            key: 0,
             listener: None,
             device_callbacks: None,
             session_callbacks: None,
@@ -576,8 +617,8 @@ impl Camera {
     /// with its frames read into `inbox`. `Err` says which step failed. What was
     /// made before it stays in `self`, so that `Drop` releases it.
     fn setup(&mut self, inbox: &Arc<Inbox>, choice: &Choice) -> Result<(), String> {
-        self.inbox = Arc::into_raw(Arc::clone(inbox));
-        let context = self.inbox.cast_mut().cast::<c_void>();
+        self.key = register(inbox);
+        let context = ptr::without_provenance_mut::<c_void>(self.key);
 
         let mut reader: *mut AImageReader = ptr::null_mut();
         // SAFETY: `reader` is a valid out pointer.
@@ -710,10 +751,14 @@ impl Camera {
 
 impl Drop for Camera {
     fn drop(&mut self) {
+        // The key goes first. Taking the registry's lock waits for a callback that
+        // is reading the reader, and once the key is gone no callback reads the
+        // reader or finds the inbox, so the reader can be deleted below.
+        if self.key != 0 {
+            unregister(self.key);
+        }
         // SAFETY: each handle is one this camera made and has not released, and a
-        // null one was never made. The callbacks cannot run once the device is
-        // closed, and the reader is deleted after that, so no frame reaches the
-        // inbox after its count is given back.
+        // null one was never made.
         unsafe {
             if !self.session.is_null() {
                 let _ = ACameraCaptureSession_stopRepeating(self.session);
@@ -735,45 +780,47 @@ impl Drop for Camera {
                 ACaptureSessionOutput_free(self.output);
             }
             if !self.reader.is_null() {
+                // The listener is cleared before the reader is deleted, as the NDK
+                // says to do when the application no longer listens.
+                let _ = AImageReader_setImageListener(self.reader, ptr::null_mut());
                 AImageReader_delete(self.reader);
-            }
-            if !self.inbox.is_null() {
-                drop(Arc::from_raw(self.inbox));
             }
         }
     }
 }
 
 /// The image callback: takes the latest image, copies its luminance, gives the
-/// preview when one is due, and releases the image. It runs on the NDK's thread.
+/// preview when one is due, and hands the frame on. It runs on the NDK's thread.
 ///
 /// # Safety
 ///
-/// `context` is the `Inbox` the listener was set with, and `reader` the reader
-/// that called. Both are the NDK's to call with, as `AImageReader` documents.
+/// `context` is the key the listener was set with, which the NDK passes back
+/// unchanged and which is never dereferenced. `reader` is the reader that called,
+/// and it is used only while `CAMERAS` is locked and the key is registered (see
+/// `read_image`).
 unsafe extern "C" fn image_available(context: *mut c_void, reader: *mut AImageReader) {
-    // SAFETY: the camera keeps the `Inbox` until its reader is deleted, and the NDK
-    // calls the listener only while the reader exists.
-    let inbox = unsafe { &*context.cast::<Inbox>() };
     // A panic must not cross into the NDK, which would end the process.
-    let _ = catch_unwind(AssertUnwindSafe(|| read_image(inbox, reader)));
+    let _ = catch_unwind(AssertUnwindSafe(|| read_image(context.addr(), reader)));
 }
 
-fn read_image(inbox: &Inbox, reader: *mut AImageReader) {
-    if inbox.is_over() {
-        return;
-    }
-    let mut image: *mut AImage = ptr::null_mut();
-    // SAFETY: `reader` is the reader the callback named, and `image` a valid out
-    // pointer.
-    let status = unsafe { AImageReader_acquireLatestImage(reader, &mut image) };
-    if status != media_status_t::AMEDIA_OK || image.is_null() {
-        return;
-    }
-    let frame = luminance_of(image);
-    // SAFETY: `image` was acquired above, and is released once, after its plane
-    // has been copied.
-    unsafe { AImage_delete(image) };
+/// Reads the latest frame of the camera `key` names, and gives the application its
+/// preview when one is due. The reader is used only while `CAMERAS` is locked and
+/// the key is still registered. `Camera::drop` removes the key under that lock
+/// before it deletes the reader, so the reader is live whenever it is used here.
+fn read_image(key: usize, reader: *mut AImageReader) {
+    let (inbox, frame) = {
+        let cameras = cameras();
+        let Some((_, inbox)) = cameras.iter().find(|(entry, _)| *entry == key) else {
+            return;
+        };
+        if inbox.is_over() {
+            return;
+        }
+        // SAFETY: the key is registered, so the reader is live, and it is used under
+        // the lock that `Camera::drop` takes before it deletes the reader.
+        let frame = unsafe { take_frame(reader) };
+        (Arc::clone(inbox), frame)
+    };
     let Some(frame) = frame else {
         return;
     };
@@ -786,6 +833,27 @@ fn read_image(inbox: &Inbox, reader: *mut AImageReader) {
         }
     }
     inbox.put(frame);
+}
+
+/// The luminance of the latest image of `reader`, copied out, with the image
+/// released. `None` when there is no image, or its plane cannot be read.
+///
+/// # Safety
+///
+/// `reader` is a live reader, and it is not deleted while this runs.
+unsafe fn take_frame(reader: *mut AImageReader) -> Option<Frame> {
+    let mut image: *mut AImage = ptr::null_mut();
+    // SAFETY: `reader` is live (see this function's contract), and `image` is a
+    // valid out pointer.
+    let status = unsafe { AImageReader_acquireLatestImage(reader, &mut image) };
+    if status != media_status_t::AMEDIA_OK || image.is_null() {
+        return None;
+    }
+    let frame = luminance_of(image);
+    // SAFETY: `image` was acquired above, and is released once, after its plane
+    // has been copied.
+    unsafe { AImage_delete(image) };
+    frame
 }
 
 /// The luminance of an image's first plane, which is YUV's Y plane, copied out.
@@ -825,11 +893,13 @@ fn luminance_of(image: *mut AImage) -> Option<Frame> {
 ///
 /// # Safety
 ///
-/// `context` is the `Inbox` the device was opened with, which the camera keeps
-/// until the device is closed.
+/// `context` is the key the device was opened with, which the NDK passes back
+/// unchanged. Once the camera has removed its key, the callback finds no inbox and
+/// does nothing.
 unsafe extern "C" fn device_lost(context: *mut c_void, _device: *mut ACameraDevice) {
-    // SAFETY: see the function's contract.
-    unsafe { &*context.cast::<Inbox>() }.lost();
+    if let Some(inbox) = inbox_of(context.addr()) {
+        inbox.lost();
+    }
 }
 
 /// The camera reported an error: the scan ends with no text.
@@ -839,8 +909,9 @@ unsafe extern "C" fn device_lost(context: *mut c_void, _device: *mut ACameraDevi
 /// As for `device_lost`.
 unsafe extern "C" fn device_error(context: *mut c_void, _device: *mut ACameraDevice, code: c_int) {
     eprintln!("TAWARA scan: the camera reported error {code}");
-    // SAFETY: see the function's contract.
-    unsafe { &*context.cast::<Inbox>() }.lost();
+    if let Some(inbox) = inbox_of(context.addr()) {
+        inbox.lost();
+    }
 }
 
 /// The back camera of the device, and the size its frames are read at.
