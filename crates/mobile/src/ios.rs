@@ -1,16 +1,18 @@
 //! iOS: the store's directory, its protection and backup exclusion, the
-//! pasteboard, the share sheet, the app-switcher cover, the lock, and the
-//! screenshot and capture reports that the recovery phrase's screen reads,
-//! through the Objective-C runtime with no Swift or Objective-C source
-//! (docs/DECISIONS.md D4, D32, D44).
+//! pasteboard, the share sheet, the QR scanner, the app-switcher cover, the lock,
+//! and the screenshot and capture reports that the recovery phrase's screen
+//! reads, through the Objective-C runtime with no Swift or Objective-C source
+//! (docs/DECISIONS.md D4, D32, D42, D44).
 //!
 //! Everything here runs on the main thread: [`main`] before winit's
 //! `UIApplicationMain`, and the notification blocks on the main queue. The
 //! device unlock's check is the exception: it waits for the person, so it runs
-//! on a thread of its own (`keychain.rs`). What this writes on stderr is one
+//! on a thread of its own (`keychain.rs`). The scanner's session and its readings
+//! run on queues of their own (`scan.rs`). What this writes on stderr is one
 //! `TAWARA` line per fact, never a secret.
 
 mod keychain;
+mod scan;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -37,6 +39,7 @@ use objc2_ui_kit::{
     UIViewAutoresizing, UIWindow,
 };
 use tawara_app::Host;
+use tawara_app::host::ScanPreview;
 
 thread_local! {
     /// The cover over the window while the application is not active.
@@ -78,6 +81,10 @@ pub fn main() {
         keep_password: Some(keychain::keep),
         release_password: Some(keychain::release),
         forget_password: Some(keychain::forget),
+        // The scanner is UIKit's: its own screen shows the camera (D42 item 3).
+        scan: Some(scan::start),
+        cancel_scan: Some(scan::cancel),
+        scan_preview: Some(ScanPreview::Shell),
     };
     if let Err(error) = tawara_app::run_in(host) {
         eprintln!("TAWARA stop: {error}");
@@ -457,6 +464,10 @@ fn entered_background(mtm: MainThreadMarker) {
         )
     };
     task.id.store(id, Ordering::SeqCst);
+    // A scan under way stops first, here on the main thread, so that no camera
+    // runs in the background (docs/DECISIONS.md D42 item 4). The application's
+    // own stop follows from the move, through the `cancel_scan` it was given.
+    scan::background();
     let leaving = tawara_app::left_foreground();
 
     // SAFETY: UIBackgroundTaskInvalid is UIKit's own constant.

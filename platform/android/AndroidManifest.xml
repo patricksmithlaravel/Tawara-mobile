@@ -19,6 +19,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.patricksmithlaravel.tawara">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The camera is for the QR scanner (docs/DECISIONS.md D42). It is asked
+         for at run time, when the person chooses to scan, and never at
+         start-up. The camera features are not required, so a device with no
+         camera still installs the application, and its scanner says there is
+         none. Without the explicit entry for android.hardware.camera, the
+         system would take the feature as required, because the permission
+         asks for the camera. android.hardware.camera is declared not
+         required, beside android.hardware.camera.any (owner, 2026-10-18). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application
         android:label="Tawara"
         android:hasCode="false"

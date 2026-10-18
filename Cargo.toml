@@ -27,19 +27,18 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# TEMPORARY, UNTIL TAWARA-WALLET PULL REQUEST #37 MERGES: Tawara-wallet's
-# `work/ios-unlock` at 1afa6bb, the head of pull request #37, the application
-# side of the device unlock (docs/DECISIONS.md D45). #37 merges after the iced
-# re-pin (#39) and the Send pages (#35), with a merge commit, so this commit is
-# on Tawara-wallet's `main` once #37 merges. It adds the `Host` fields
-# `device_check`, `keep_password`, `release_password` and `forget_password`,
-# which crates/mobile/src/ios/keychain.rs fills, and it re-exports `SecretText`
-# from `tawara_app::host`, the name keychain.rs builds the password with. At
-# f595dc1 that import was private, so the iOS targets did not compile. `main`
-# does not have the device-unlock fields yet, so this build does not compile
-# against `main`. When #37 merges, `rev` moves back to Tawara-wallet's `main` at
-# the merge commit, and this comment is rewritten with it.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "1afa6bb72fd4e4abb55eacec3e54280aa06b556b" }
+# TAWARA-WALLET'S QR SCANNER, PULL REQUEST #40 (docs/DECISIONS.md D42 and D40).
+# `rev` is the head of Tawara-wallet's `work/qr-scan` at 6347ad5, the branch of
+# that pull request. The branch starts from Tawara-wallet's `main` at 78d6fb0.
+# It adds the `Host` fields `scan`, `cancel_scan` and `scan_preview`, which
+# crates/mobile/src/ios/scan.rs and crates/mobile/src/android/scan.rs fill, the
+# checks a scanned text must pass, and the Scan buttons and the scanner's page.
+# It also turns on iced's `image-without-codecs` feature, for the Android
+# preview (D42 item 5), so Cargo.lock gains six crates: image, byteorder-lite,
+# kamadak-exif, moxcms, mutate_once and pxfm. The pull request merges into
+# Tawara-wallet's `main` with a merge commit, so 6347ad5 stays on `main`'s
+# history, and `rev` needs no move when it does.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "6347ad59f0aa4e75c57624d336186c92aa40080e" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
@@ -65,10 +64,21 @@ tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev
 iced_winit = { git = "https://github.com/patricksmithlaravel/iced_mobile", rev = "7325ccd5823a118d46f023e91010d27f07b6dd90", default-features = false, features = ["android-native-activity"] }
 jni = "0.22.4"
 ndk-context = "0.1.1"
+# THE CAMERA, FOR ANDROID'S QR SCANNER (Tawara-wallet's docs/DECISIONS.md D42
+# item 3, approved by the owner on 2026-10-16). `media` links `mediandk`, which
+# holds AImageReader. `camera2ndk` is linked by crates/mobile/src/android/scan.rs
+# itself, since ndk-sys declares its functions and links nothing for them. It
+# is Android only: ndk-sys does not compile for any other target.
+ndk-sys = { version = "0.6", features = ["media"] }
 # The Android entry calls `_exit`, which ends the process without the C
 # library's exit handlers (crates/mobile/src/android.rs; D32 item 9 (j)). The
 # lockfile already holds this version, so the build gains no package.
 libc = "0.2.190"
+# THE QR READER, FOR ANDROID'S SCANNER (D42 item 3). Its default features are
+# off: `img` would add the `image` crate, which the scanner does not use, since
+# the camera's luminance goes to the reader as it is. Its licence is
+# `(MIT OR Apache-2.0) AND ISC`, and deny.toml admits ISC.
+rqrr = { version = "0.11", default-features = false }
 objc2 = "0.5.2"
 block2 = "0.5.1"
 objc2-foundation = { version = "0.2.2", features = [
@@ -93,7 +103,11 @@ objc2-ui-kit = { version = "0.2.2", features = [
     "UIActivity",
     "UIActivityViewController",
     "UIApplication",
+    "UIButton",
     "UIColor",
+    "UIControl",
+    "UIGeometry",
+    "UIOrientation",
     "UIPasteboard",
     "UIResponder",
     "UIScene",

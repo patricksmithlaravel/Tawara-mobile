@@ -23,6 +23,10 @@ path = "src/main.rs"
 
 [dependencies]
 tawara-app.workspace = true
+# The QR reader behind the Android scanner (docs/DECISIONS.md D42 item 3). It is
+# not named under a target: the scanner's decoding is compiled and tested on the
+# host too (`src/qr.rs`).
+rqrr.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 # winit is not named here: the fork's copy comes through `iced_winit`, as
@@ -35,6 +39,10 @@ ndk-context.workspace = true
 # library's exit handlers (D32 item 9 (j)). The policy test names libc among
 # the mobile crate's dependencies.
 libc.workspace = true
+# The camera and its image reader, for the QR scanner (D42 item 3), with the
+# `media` feature set in the workspace line. Android only: it does not compile
+# for any other target.
+ndk-sys.workspace = true
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2.workspace = true
