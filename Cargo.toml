@@ -28,8 +28,8 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
 # TEMPORARY, UNTIL TAWARA-WALLET'S QR SCANNER PULL REQUEST MERGES: Tawara-wallet's
-# `work/qr-scan` at 8e60c11, its pull request #40 (docs/DECISIONS.md D42 and
-# D40). Those are five commits on Tawara-wallet's `main` at d028a48, which has
+# `work/qr-scan` at 31b2a08, its pull request #40 (docs/DECISIONS.md D42 and
+# D40). Those are six commits on Tawara-wallet's `main` at d028a48, which has
 # the device unlock (pull request #37, merged; D45) that
 # crates/mobile/src/ios/keychain.rs fills. The branch adds the `Host` fields
 # `scan`, `cancel_scan` and `scan_preview`, which crates/mobile/src/ios/scan.rs
@@ -40,7 +40,7 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # mutate_once and pxfm. When the scanner's pull request merges, `rev` moves back
 # to Tawara-wallet's `main` at the merge commit, and this comment is rewritten
 # with it.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "8e60c1138d77a36abba21842fb0ae41de6391ce6" }
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "31b2a0860f666575f98b04f03b91ff9a56e53112" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
