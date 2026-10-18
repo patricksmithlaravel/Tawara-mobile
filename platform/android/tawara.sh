@@ -67,8 +67,9 @@ ndk_paths() {
 }
 
 # ndk_host: the NDK's prebuilt directory for this machine. The NDK has
-# linux-x86_64 on Linux, and on macOS darwin-x86_64, which runs under Rosetta on
-# Apple silicon; darwin-arm64 is taken when the NDK ships one.
+# linux-x86_64 on Linux. On macOS it ships darwin-x86_64, whose clang is a
+# universal binary, so it runs natively on Apple silicon too; darwin-arm64 is
+# taken when the NDK ships one.
 ndk_host() {
   case $(uname -s) in
     Linux) echo linux-x86_64 ;;
