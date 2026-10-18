@@ -47,8 +47,8 @@
 #                             SHA-256 (default ~/.cache/tawara-release).
 #
 # When a signing variable is unset, the script names it, signs nothing, and exits 0
-# with the unsigned bundle in the output folder. The last line says
-# whether a signed bundle exists.
+# with the unsigned bundle in the output folder. The status lines before the upload
+# note say whether a signed bundle exists.
 set -Eeuo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

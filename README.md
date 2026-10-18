@@ -34,8 +34,9 @@ crates/
 ci/
   notices.sh     writes THIRD-PARTY-NOTICES.txt, which CI compares with the committed file
 platform/
-  android/       manifest, backup rules, build and check script
-  ios/           Info.plist, build and check script
+  android/       manifest, backup rules, build, check and release scripts
+  ios/           Info.plist, privacy manifest, build, check and release scripts
+  build-number   the store build counter, and build-number.sh, which raises it
 about.toml, THIRD-PARTY-NOTICES.hbs, THIRD-PARTY-NOTICES.txt   the notices (below)
 .github/workflows/mobile.yml   the checks, the emulator and the simulators
 ```
@@ -73,6 +74,11 @@ platform/ios/tawara.sh simulator   # bundle, boot a simulator, run the checks
 `platform/ios/release.sh` makes the App Store upload. It runs on the owner's Mac,
 with Xcode 26.x and the owner's signing identities, and CI never runs it
 (`platform/ios/README.md`).
+
+The steps of each store build, the environment variables it reads and what the
+owner supplies are in the two platform READMEs. The owner supplies the accounts,
+the signing identities and profile, the upload key, the icons and the export
+answer. CI signs and uploads nothing. D36, which sets that, is still proposed.
 
 The build number is `CFBundleVersion` on iOS and `versionCode` on Android.
 Each upload to either store takes the next one. `platform/build-number` holds
