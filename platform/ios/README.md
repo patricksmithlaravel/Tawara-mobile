@@ -18,7 +18,9 @@ Bundle identifier: `com.patricksmithlaravel.tawara` (D8).
   signing, phase 5's) and `simulator` (bundled, signed ad hoc, run on a
   simulator with the checks CI runs, `.github/workflows/mobile.yml`). Those
   checks do not exercise the device unlock: `simctl` has no biometric command,
-  and Face ID is enrolled in the Simulator app's Features menu.
+  and Face ID is enrolled in the Simulator app's Features menu. Nor do they
+  exercise the scanner: the simulator has no camera, so a scan there is refused
+  at once (`TAWARA scan: no camera`).
 - Frameworks: the device unlock links `Security` and `LocalAuthentication`
   itself, with `#[link]` in `crates/mobile/src/ios/keychain.rs`, and reaches
   them through `objc2` and `objc2-foundation` (whose `NSData` feature is new
@@ -48,10 +50,15 @@ shell draws the camera's preview. A scan is a full-screen modal over the key
 window, presented as the share sheet is, with the preview and a Cancel button.
 It is portrait only. The session starts and stops on a serial queue of its own,
 and the readings come on another. The first reading that holds one distinct
-text goes back to the application once; then the camera stops and the scanner
-goes. A scan stops in the same way when the person cancels it, when the
-application asks, and when the application goes to the background. The camera
-is asked for only when a scan starts. Android passes no scan yet.
+text goes back to the application once, unchecked: the application trims it,
+bounds it and checks it as a destination (D42 item 4). A reading of two
+different texts gives nothing, and the camera reads on. Then the camera stops
+and the scanner goes. A scan stops in the same way when the person cancels it,
+when the application asks, and when the application goes to the background. The
+camera is asked for only when a scan starts. The words the scanner shows, and
+the usage text above, are provisional until the owner approves them (D42).
+Android's scanner is its own, in `crates/mobile/src/android/scan.rs`, and is
+described in platform/android/README.md.
 
 The device unlock (`crates/mobile/src/ios/keychain.rs`; docs/DECISIONS.md D45)
 fills the `Host` fields that offer the check and keep the store's password

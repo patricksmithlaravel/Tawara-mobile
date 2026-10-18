@@ -26,7 +26,10 @@ D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
   application after the first start, after the asset-path check and at the
   end of the run, so that a start which ends says why) and `selftest` (the
   crash, abort and destroy parsers on logged lines, with no SDK or device;
-  CI runs it before the emulator).
+  CI runs it before the emulator). The emulator has no camera
+  (`-camera-back none -camera-front none`), so a scan there is refused at once,
+  and the camera itself is not exercised: that waits for the device spike
+  (D42).
 
 What the Rust side does (`crates/mobile/src/android.rs`): `FLAG_SECURE` on
 the whole window (D32 item 4), the store in `no_backup/`, the clipboard
@@ -36,9 +39,12 @@ suspends the application. The QR scanner (`crates/mobile/src/android/scan.rs`,
 D42) reads the back camera through Camera2 and an `AImageReader` from the NDK,
 and decodes the luminance with `rqrr` (`crates/mobile/src/qr.rs`). It asks for
 the camera permission through JNI and polls the answer, since a NativeActivity
-gets no permission callback. Its camera stops when the scan ends, when the
-application moves to the background, when the window loses its focus, and when
-the application ends.
+gets no permission callback. It gives the application each frame's preview
+through `preview_frame`, ten a second at most, turned upright for the display's
+rotation, and the application draws it. Its camera stops when the scan ends,
+when the application moves to the background, when the window loses its focus,
+and when the application ends. The words it shows for a scan that cannot start
+are provisional until the owner approves them (D42).
 
 To try a build on a phone: take `tawara.apk` from a local
 `platform/android/tawara.sh build && platform/android/tawara.sh apk` (with
