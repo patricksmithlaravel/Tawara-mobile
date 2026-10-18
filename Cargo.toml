@@ -27,20 +27,18 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# TEMPORARY, UNTIL TAWARA-WALLET'S QR SCANNER PULL REQUEST MERGES: Tawara-wallet's
-# `work/qr-scan` at 31b2a08, its pull request #40 (docs/DECISIONS.md D42 and
-# D40). Those are six commits on Tawara-wallet's `main` at d028a48, which has
-# the device unlock (pull request #37, merged; D45) that
-# crates/mobile/src/ios/keychain.rs fills. The branch adds the `Host` fields
-# `scan`, `cancel_scan` and `scan_preview`, which crates/mobile/src/ios/scan.rs
-# and crates/mobile/src/android/scan.rs fill, the checks a scanned text must
-# pass, and the Scan buttons and the scanner's page. It also turns on iced's
-# `image-without-codecs` feature, for the Android preview (D42 item 5), so
-# Cargo.lock gains six crates: image, byteorder-lite, kamadak-exif, moxcms,
-# mutate_once and pxfm. When the scanner's pull request merges, `rev` moves back
-# to Tawara-wallet's `main` at the merge commit, and this comment is rewritten
-# with it.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "31b2a0860f666575f98b04f03b91ff9a56e53112" }
+# TAWARA-WALLET'S QR SCANNER, PULL REQUEST #40 (docs/DECISIONS.md D42 and D40).
+# `rev` is the head of Tawara-wallet's `work/qr-scan` at a0a4a27, the branch of
+# that pull request. The branch starts from Tawara-wallet's `main` at 78d6fb0.
+# It adds the `Host` fields `scan`, `cancel_scan` and `scan_preview`, which
+# crates/mobile/src/ios/scan.rs and crates/mobile/src/android/scan.rs fill, the
+# checks a scanned text must pass, and the Scan buttons and the scanner's page.
+# It also turns on iced's `image-without-codecs` feature, for the Android
+# preview (D42 item 5), so Cargo.lock gains six crates: image, byteorder-lite,
+# kamadak-exif, moxcms, mutate_once and pxfm. The pull request merges into
+# Tawara-wallet's `main` with a merge commit, so a0a4a27 stays on `main`'s
+# history, and `rev` needs no move when it does.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "a0a4a270e55a3c01702cb2944b6dd4002779172b" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
