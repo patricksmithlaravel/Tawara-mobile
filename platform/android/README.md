@@ -6,7 +6,9 @@ D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
 
 - `AndroidManifest.xml`: NativeActivity, `hasCode="false"`, uncompressed
   16 KB-aligned native libraries, `INTERNET`, `CAMERA` for the QR scanner
-  (asked for at run time, D42; `android.hardware.camera.any` is not required),
+  (asked for at run time, D42; `android.hardware.camera` and
+  `android.hardware.camera.any` are not required, so a device with no camera
+  installs it),
   the nineteen configuration
   changes handled in place (D32 item 9: the eighteen of API 35 and
   `assetsPaths` of API 36), Back delivered as a key (phase 1, A14), and the
