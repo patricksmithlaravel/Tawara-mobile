@@ -64,10 +64,21 @@ tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev
 iced_winit = { git = "https://github.com/patricksmithlaravel/iced_mobile", rev = "7325ccd5823a118d46f023e91010d27f07b6dd90", default-features = false, features = ["android-native-activity"] }
 jni = "0.22.4"
 ndk-context = "0.1.1"
+# THE CAMERA, FOR ANDROID'S QR SCANNER (Tawara-wallet's docs/DECISIONS.md D42
+# item 3, approved by the owner on 2026-10-16). `media` links `mediandk`, which
+# holds AImageReader. `camera2ndk` is linked by crates/mobile/src/android/scan.rs
+# itself, since ndk-sys declares its functions and links nothing for them. It
+# is Android only: ndk-sys does not compile for any other target.
+ndk-sys = { version = "0.6", features = ["media"] }
 # The Android entry calls `_exit`, which ends the process without the C
 # library's exit handlers (crates/mobile/src/android.rs; D32 item 9 (j)). The
 # lockfile already holds this version, so the build gains no package.
 libc = "0.2.190"
+# THE QR READER, FOR ANDROID'S SCANNER (D42 item 3). Its default features are
+# off: `img` would add the `image` crate, which the scanner does not use, since
+# the camera's luminance goes to the reader as it is. Its licence is
+# `(MIT OR Apache-2.0) AND ISC`, and deny.toml admits ISC.
+rqrr = { version = "0.11", default-features = false }
 objc2 = "0.5.2"
 block2 = "0.5.1"
 objc2-foundation = { version = "0.2.2", features = [

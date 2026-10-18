@@ -10,7 +10,11 @@
 //! - **Android** (`src/android.rs`): `FLAG_SECURE` on the whole window (D32 item
 //!   4); the store in `no_backup/` (D21), which the manifest's backup rules
 //!   also exclude (platform/android); the lock when the system suspends the
-//!   application, from iced's patched shell (D32 item 6).
+//!   application, from iced's patched shell (D32 item 6); the QR scanner, whose
+//!   camera is the NDK's Camera2 and whose frames are read by `src/qr.rs`
+//!   (`src/android/scan.rs`, D42), stopped when the scan ends, when the
+//!   application moves to the background, when its window loses the focus, and
+//!   when the application ends.
 //! - **iOS** (`src/ios.rs`): the store in Application Support, protected with
 //!   `NSFileProtectionComplete` and excluded from backups (D32 item 3); a
 //!   cover over the window whenever the application is not active, so the
@@ -28,6 +32,10 @@
 pub mod android;
 #[cfg(target_os = "ios")]
 pub mod ios;
+// The QR reader behind Android's scanner. It is compiled for the tests on every
+// host, so that the decoding is checked without a phone.
+#[cfg(any(target_os = "android", test))]
+mod qr;
 
 /// The Android entry point: android-activity calls it on its own thread
 /// once the activity is created. Its `AndroidApp` is the fork's winit's,

@@ -5,7 +5,9 @@ Tawara on Android is `crates/mobile` loaded as `libtawara_mobile.so` by
 D4, D32). `applicationId`: `com.patricksmithlaravel.tawara` (D8).
 
 - `AndroidManifest.xml`: NativeActivity, `hasCode="false"`, uncompressed
-  16 KB-aligned native libraries, `INTERNET`, the nineteen configuration
+  16 KB-aligned native libraries, `INTERNET`, `CAMERA` for the QR scanner
+  (asked for at run time, D42; `android.hardware.camera.any` is not required),
+  the nineteen configuration
   changes handled in place (D32 item 9: the eighteen of API 35 and
   `assetsPaths` of API 36), Back delivered as a key (phase 1, A14), and the
   backup rules: `android:allowBackup="false"` and `dataExtractionRules`
@@ -28,7 +30,13 @@ What the Rust side does (`crates/mobile/src/android.rs`): `FLAG_SECURE` on
 the whole window (D32 item 4), the store in `no_backup/`, the clipboard
 through JNI with every copy marked sensitive (D32 item 10), the share sheet (an
 `ACTION_SEND` chooser) and Back through JNI, and the lock when the system
-suspends the application.
+suspends the application. The QR scanner (`crates/mobile/src/android/scan.rs`,
+D42) reads the back camera through Camera2 and an `AImageReader` from the NDK,
+and decodes the luminance with `rqrr` (`crates/mobile/src/qr.rs`). It asks for
+the camera permission through JNI and polls the answer, since a NativeActivity
+gets no permission callback. Its camera stops when the scan ends, when the
+application moves to the background, when the window loses its focus, and when
+the application ends.
 
 To try a build on a phone: take `tawara.apk` from a local
 `platform/android/tawara.sh build && platform/android/tawara.sh apk` (with

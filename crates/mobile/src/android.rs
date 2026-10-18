@@ -1,6 +1,6 @@
 //! Android: the window's flags, the store's directory, the clipboard, the
-//! share sheet, Back and the lock, with no Java code (docs/DECISIONS.md D4,
-//! D32).
+//! share sheet, Back, the lock and the QR scanner, with no Java code
+//! (docs/DECISIONS.md D4, D32, D42). The scanner is `android/scan.rs`.
 //!
 //! The activity is `android.app.NativeActivity` (platform/android). JNI
 //! reaches the platform's classes through the `Application` that
@@ -10,6 +10,8 @@
 //! tag `RustStdoutStderr`, one `TAWARA` line per fact, never a secret. A Java
 //! exception that the share sheet's calls leave pending is described in the
 //! system log as well, outside those lines, and its trace can take several.
+
+mod scan;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -21,9 +23,10 @@ use iced_winit::winit::platform::android::activity::{AndroidApp, WindowManagerFl
 use jni::objects::{JObject, JString, JValue};
 use jni::vm::JavaVM;
 use jni::{jni_sig, jni_str};
+use tawara_app::host::ScanPreview;
 use tawara_app::{Host, Leaving};
 
-/// The activity, for Back.
+/// The activity, for Back, and for the scanner's permission and window.
 static APP: OnceLock<AndroidApp> = OnceLock::new();
 
 /// The lock that the last move to the background started, kept for the line
@@ -67,15 +70,18 @@ pub fn main(app: AndroidApp) {
         keep_password: None,
         release_password: None,
         forget_password: None,
-        // Android's scanner is not built yet (docs/DECISIONS.md D42): no scan, so
-        // the application offers none.
-        scan: None,
-        cancel_scan: None,
-        scan_preview: None,
+        // The camera's scan (docs/DECISIONS.md D42, `android/scan.rs`). Android's
+        // preview is drawn by the application, from the frames the scan gives it.
+        scan: Some(scan::start),
+        cancel_scan: Some(scan::cancel),
+        scan_preview: Some(ScanPreview::Application),
     };
     if let Err(error) = tawara_app::run_in(host) {
         log_direct(&format!("TAWARA stop: {error}"));
     }
+    // The camera's objects are released before the process ends, whatever ended
+    // the interface (docs/DECISIONS.md D42 item 4).
+    scan::shutdown();
     // Asked without waiting, so the line shows whether the lock is finished
     // when the process ends (D32 item 9). A wait here would not finish it:
     // the interface takes the worker's answer only in its update, which runs
@@ -123,6 +129,10 @@ fn make_private(dir: &Path) -> bool {
 fn lifecycle(event: iced_winit::Lifecycle) {
     if event == iced_winit::Lifecycle::Suspended {
         eprintln!("TAWARA lifecycle: suspended; locking");
+        // A scan under way stops first, here on the event loop's thread, so that
+        // no camera runs in the background (docs/DECISIONS.md D42 item 4). The
+        // application's own stop follows from the move, through `cancel_scan`.
+        scan::background();
         // Not waited for: Android's process is not suspended the moment
         // this returns, and bounding the wait here as on iOS was declined
         // for now (D32 item 6). The Leaving is kept for the exit's line.
@@ -297,6 +307,33 @@ fn back() {
     if let Err(error) = move_task_to_back(app) {
         eprintln!("TAWARA back: {error:?}");
     }
+}
+
+/// Runs `f` with the activity, on this thread, which is attached to the JVM for
+/// the call. The scanner uses it for the permission and the window, from the
+/// camera's own threads too (`android/scan.rs`). A Java exception that `f` leaves
+/// pending is described for logcat and cleared, as `share_text` does, so that
+/// the caller gets one error.
+fn with_activity<T>(
+    f: impl FnOnce(&mut jni::Env, &JObject) -> jni::errors::Result<T>,
+) -> jni::errors::Result<T> {
+    let Some(app) = APP.get() else {
+        return Err(jni::errors::Error::NullPtr("the activity is not known yet"));
+    };
+    // SAFETY: both pointers stay valid while `app` is alive (android-activity
+    // documents `vm_as_ptr` and `activity_as_ptr` this way).
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
+    let activity = app.activity_as_ptr() as jni::sys::jobject;
+    vm.attach_current_thread(|env| {
+        // SAFETY: the activity's own reference, alive while `app` is.
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity)? };
+        let result = f(env, &activity);
+        if result.is_err() && env.exception_check() {
+            env.exception_describe();
+            env.exception_clear();
+        }
+        result
+    })
 }
 
 fn with_context<T>(
