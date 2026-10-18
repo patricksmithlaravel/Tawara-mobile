@@ -28,7 +28,7 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
 # TAWARA-WALLET'S QR SCANNER, PULL REQUEST #40 (docs/DECISIONS.md D42 and D40).
-# `rev` is the head of Tawara-wallet's `work/qr-scan` at a0a4a27, the branch of
+# `rev` is the head of Tawara-wallet's `work/qr-scan` at 6347ad5, the branch of
 # that pull request. The branch starts from Tawara-wallet's `main` at 78d6fb0.
 # It adds the `Host` fields `scan`, `cancel_scan` and `scan_preview`, which
 # crates/mobile/src/ios/scan.rs and crates/mobile/src/android/scan.rs fill, the
@@ -36,9 +36,9 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # It also turns on iced's `image-without-codecs` feature, for the Android
 # preview (D42 item 5), so Cargo.lock gains six crates: image, byteorder-lite,
 # kamadak-exif, moxcms, mutate_once and pxfm. The pull request merges into
-# Tawara-wallet's `main` with a merge commit, so a0a4a27 stays on `main`'s
+# Tawara-wallet's `main` with a merge commit, so 6347ad5 stays on `main`'s
 # history, and `rev` needs no move when it does.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "a0a4a270e55a3c01702cb2944b6dd4002779172b" }
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "6347ad59f0aa4e75c57624d336186c92aa40080e" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.
