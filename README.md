@@ -66,6 +66,10 @@ platform/ios/tawara.sh device      # build and link for a phone
 platform/ios/tawara.sh simulator   # bundle, boot a simulator, run the checks
 ```
 
+`platform/ios/release.sh` makes the App Store upload. It runs on the owner's Mac,
+with Xcode 26.x and the owner's signing identities, and CI never runs it
+(`platform/ios/README.md`).
+
 The build number is `CFBundleVersion` on iOS and `versionCode` on Android.
 Each upload to either store takes the next one. `platform/build-number` holds
 the last number uploaded, and `platform/build-number.sh bump N` raises it,
@@ -103,14 +107,15 @@ licences `deny.toml` admits and to the targets the platform scripts build. Why
 the file is committed and checked, and not uploaded, is Tawara-wallet's
 `docs/DECISIONS.md` D35.
 
-The notices do not reach the app bundles yet. That is packaging work for
-phase 5 (`docs/PLAN.md` section 6). The APK must carry the file as
-`assets/THIRD-PARTY-NOTICES.txt`, which `platform/android/tawara.sh apk` does not
-do today, since it zips only the libraries. The iOS app bundle must carry it at
-its root, which `platform/ios/tawara.sh` does not do today, since it copies only
-the executable and `Info.plist`. Until packaging does both, no build made from
-this repository carries its notices. The known gaps in the notices, and the
-owner's decisions on them, are in Tawara-wallet's D35, item 6.
+The notices reach one app bundle so far: the iOS upload bundle that
+`platform/ios/release.sh` makes puts the file, with `LICENSE.md`, at the root of
+`Tawara.app`. The development bundle that `platform/ios/tawara.sh` makes does not
+carry them, since it copies only the executable and `Info.plist`. The APK must
+carry the file as `assets/THIRD-PARTY-NOTICES.txt`, which `platform/android/tawara.sh
+apk` does not do today, since it zips only the libraries. That is packaging work
+for phase 5 (`docs/PLAN.md` section 6). Until the Android packaging does it, no
+Android build made from this repository carries its notices. The known gaps in the
+notices, and the owner's decisions on them, are in Tawara-wallet's D35, item 6.
 
 ## Licence
 

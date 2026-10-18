@@ -90,5 +90,9 @@
 	     without one, so UIRequiredDeviceCapabilities names none. -->
 	<key>NSCameraUsageDescription</key>
 	<string>Tawara uses the camera to read a QR code with a destination address, when you choose to scan one.</string>
+	<!-- TODO, for the owner and counsel (docs/RELEASE.md section 1.2, lines 125-131):
+	     ITSAppUsesNonExemptEncryption is deliberately not in this file. release.sh
+	     writes it from TAWARA_EXPORT_COMPLIANCE, which it requires, so that no
+	     upload claims an export answer that nobody gave. -->
 </dict>
 </plist>
