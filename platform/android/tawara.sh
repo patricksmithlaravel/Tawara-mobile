@@ -27,9 +27,9 @@ PKG=com.patricksmithlaravel.tawara
 ACTIVITY=android.app.NativeActivity
 LIB=tawara_mobile
 MIN_API=26
-TARGET_API=35
+TARGET_API=36
 TARGETS=(aarch64-linux-android x86_64-linux-android)
-IMG="system-images;android-35;google_apis;x86_64"
+IMG="system-images;android-36;google_apis;x86_64"
 NDK_PIN=29.0.14206865
 SERIAL=emulator-5554
 TAG=RustStdoutStderr
@@ -54,15 +54,33 @@ endgroup() { echo "::endgroup::"; }
 die() { echo "::error::$*"; exit 1; }
 need_sdk() { [ -n "$SDK" ] || die "ANDROID_HOME is not set"; }
 
+# ndk_paths: the pinned NDK (docs/RELEASE.md section 1.6), the one the release
+# names, not whichever 29.x is installed; and its toolchain for this host.
 ndk_paths() {
-  NDK=$(ls -d "$SDK"/ndk/29.* 2>/dev/null | sort -V | tail -1 || true)
-  if [ -z "$NDK" ]; then
+  NDK=$SDK/ndk/$NDK_PIN
+  if [ ! -d "$NDK" ]; then
     # `yes` dies of SIGPIPE when sdkmanager exits; only sdkmanager's status counts.
     (yes 2>/dev/null || true) | sdkmanager --install "ndk;$NDK_PIN" >/dev/null
-    NDK=$SDK/ndk/$NDK_PIN
   fi
-  TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+  TC=$NDK/toolchains/llvm/prebuilt/$(ndk_host)/bin
   [ -x "$TC/clang" ] || die "no NDK clang at $TC"
+}
+
+# ndk_host: the NDK's prebuilt directory for this machine. The NDK has
+# linux-x86_64 on Linux, and on macOS darwin-x86_64, which runs under Rosetta on
+# Apple silicon; darwin-arm64 is taken when the NDK ships one.
+ndk_host() {
+  case $(uname -s) in
+    Linux) echo linux-x86_64 ;;
+    Darwin)
+      if [ -d "$NDK/toolchains/llvm/prebuilt/darwin-arm64" ]; then
+        echo darwin-arm64
+      else
+        echo darwin-x86_64
+      fi
+      ;;
+    *) die "no NDK host directory for $(uname -s)" ;;
+  esac
 }
 
 abi_of() {
@@ -79,7 +97,9 @@ build() {
   cd "$ROOT"
   for t in "${TARGETS[@]}"; do
     local u=${t//-/_}
-    local U=${u^^}
+    # Upper case by tr, not ${u^^}, which macOS's bash 3.2 does not have.
+    local U
+    U=$(printf '%s' "$u" | tr 'a-z' 'A-Z')
     export "CARGO_TARGET_${U}_LINKER=$TC/${t}${MIN_API}-clang"
     export "CC_${u}=$TC/${t}${MIN_API}-clang" "CXX_${u}=$TC/${t}${MIN_API}-clang++"
     export "AR_${u}=$TC/llvm-ar" "RANLIB_${u}=$TC/llvm-ranlib"
@@ -681,18 +701,18 @@ on_emulator() {
   check manifest.dataExtractionRules "android:dataExtractionRules names the rules" \
     grep -q 'android:dataExtractionRules' "$OUT/manifest.txt"
   # The activity handles every configuration change this mask names (D32
-  # item 9), so the mask must hold the nineteen names: the eighteen of API 35
-  # and assetsPaths of API 36. A name left out lets Android recreate the
-  # activity, which ends the application. The detail shows each mask aapt2
-  # read, to compare bit by bit with 0xd000ffff. They are joined on one line,
-  # so a second element with a mask of its own fails the check rather than
-  # hide behind the first.
+  # item 9), so the mask must hold the twenty names: the eighteen of API 35,
+  # and assetsPaths and resourcesUnused of API 36. A name left out lets Android
+  # recreate the activity, which ends the application. The detail shows each
+  # mask aapt2 read, to compare bit by bit with 0xd800ffff. They are joined on
+  # one line, so a second element with a mask of its own fails the check rather
+  # than hide behind the first.
   local changes
   changes=$(awk 'match($0, /configChanges\(0x[0-9a-f]+\)=.*/) {
     s = s (s == "" ? "" : "; ") substr($0, RSTART)
   } END { print (s == "" ? "no configChanges" : s) }' "$OUT/manifest.txt")
-  check manifest.configChanges "want 0xd000ffff (19 names): $changes" \
-    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0xd000ffff$' <<<"$changes"
+  check manifest.configChanges "want 0xd800ffff (20 names): $changes" \
+    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0xd800ffff$' <<<"$changes"
   endgroup
 
   group "install and start"

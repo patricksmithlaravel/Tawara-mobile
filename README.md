@@ -59,6 +59,10 @@ platform/android/tawara.sh apk        # the APK, signed with a throwaway debug k
 platform/android/tawara.sh emulator   # boot an emulator, install, run the checks
 ```
 
+`platform/android/release.sh` makes the Google Play bundle. It runs on the
+owner's machine with the Android SDK pieces that docs/RELEASE.md section 1.6
+names and the upload key, and CI never runs it (`platform/android/README.md`).
+
 iOS needs a Mac with Xcode:
 
 ```
@@ -107,14 +111,14 @@ licences `deny.toml` admits and to the targets the platform scripts build. Why
 the file is committed and checked, and not uploaded, is Tawara-wallet's
 `docs/DECISIONS.md` D35.
 
-The notices reach one app bundle so far: the iOS upload bundle that
+The notices reach the two upload packages: the iOS upload bundle that
 `platform/ios/release.sh` makes puts the file, with `LICENSE.md`, at the root of
-`Tawara.app`. The development bundle that `platform/ios/tawara.sh` makes does not
-carry them, since it copies only the executable and `Info.plist`. The APK must
-carry the file as `assets/THIRD-PARTY-NOTICES.txt`, which `platform/android/tawara.sh
-apk` does not do today, since it zips only the libraries. That is packaging work
-for phase 5 (`docs/PLAN.md` section 6). Until the Android packaging does it, no
-Android build made from this repository carries its notices. The known gaps in the
+`Tawara.app`, and the Google Play bundle that `platform/android/release.sh` makes
+puts them under the bundle's `assets/`. The development bundle that
+`platform/ios/tawara.sh` makes does not carry them, since it copies only the
+executable and `Info.plist`, and the development APK that `platform/android/tawara.sh
+apk` makes zips only the libraries. The desktop packages are the wallet's to
+place (Tawara-wallet's `docs/RELEASE.md` section 4). The known gaps in the
 notices, and the owner's decisions on them, are in Tawara-wallet's D35, item 6.
 
 ## Licence
