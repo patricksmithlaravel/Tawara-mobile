@@ -186,6 +186,12 @@ print(rt["identifier"], (named or phones)[-1]["identifier"])
 PY
   )
   echo "runtime $runtime; device type $devtype"
+  # UDID is the one device this run creates, and cleanup deletes only that
+  # device. It is reset first, so that a value from the environment is never
+  # taken for it. The trap is set before the creation, so that it runs whichever
+  # step fails; if the creation fails there is no device, and UDID stays empty.
+  UDID=
+  trap cleanup EXIT
   UDID=$(xcrun simctl create tawara "$devtype" "$runtime")
   xcrun simctl boot "$UDID"
   xcrun simctl bootstatus "$UDID" -b
@@ -199,7 +205,6 @@ PY
   sleep 10
   xcrun simctl terminate "$UDID" com.apple.Preferences >/dev/null 2>&1 || true
   endgroup
-  trap 'evidence; xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true' EXIT
 
   local err=$OUT/app.err out pid pid2 line container
   group "start"
@@ -367,6 +372,22 @@ evidence() {
     echo "::error::the iOS checks have failures"
     exit 1
   fi
+}
+
+# cleanup is the EXIT trap of simulator. It shuts down and deletes the device
+# this run created, then reports the results. The device goes first, so that
+# a failed check, which makes evidence exit 1, cannot leave it booted. Errors
+# here do not change the exit status: a failed delete is a warning, and the
+# run keeps its own status, except that evidence exits 1 when a check failed.
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  if [ -n "${UDID:-}" ]; then
+    xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true
+    xcrun simctl delete "$UDID" >/dev/null || echo "::warning::could not delete the simulator $UDID"
+  fi
+  evidence
+  exit "$rc"
 }
 
 case ${1:-} in
