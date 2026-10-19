@@ -76,6 +76,10 @@ pub fn main() {
         copy,
         share,
         back: || {},
+        // The notices of this package, which the Licences page draws (Tawara-wallet's
+        // docs/DECISIONS.md D35; docs/RELEASE.md section 4). release.sh puts the same
+        // file at the root of Tawara.app.
+        notices: include_str!("../../../THIRD-PARTY-NOTICES.txt"),
         captured: Some(is_captured),
         device_check: Some(keychain::device_check),
         keep_password: Some(keychain::keep),
