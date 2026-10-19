@@ -5,6 +5,7 @@
 #   platform/android/tawara.sh apk        # the APK, signed with a throwaway debug key
 #   platform/android/tawara.sh emulator   # boot an emulator, install, run the checks
 #   platform/android/tawara.sh selftest   # the crash and destroy checks, on logged lines
+#   platform/android/tawara.sh target-dir # the directory build leaves the libraries in
 #
 # No Java, Kotlin or Gradle: the activity is android.app.NativeActivity, the
 # APK is linked with aapt2 and zipped, aligned and signed by hand, as phase
@@ -91,11 +92,21 @@ abi_of() {
   esac
 }
 
+# target_dir: cargo's target directory for this workspace, where build leaves the
+# libraries. CARGO_TARGET_DIR, or build.target-dir in a Cargo config, moves it away
+# from target/, so nothing here reads a literal target/.
+target_dir() {
+  (cd "$ROOT" && cargo metadata --locked --no-deps --format-version 1) \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])'
+}
+
 # --------------------------------------------------------------------- build
 build() {
   ndk_paths
   echo "NDK $NDK"
   cd "$ROOT"
+  local tdir
+  tdir=$(target_dir) || die "cargo metadata gave no target directory"
   for t in "${TARGETS[@]}"; do
     local u=${t//-/_}
     # Upper case by tr, not ${u^^}, which macOS's bash 3.2 does not have.
@@ -104,10 +115,14 @@ build() {
     export "CARGO_TARGET_${U}_LINKER=$TC/${t}${MIN_API}-clang"
     export "CC_${u}=$TC/${t}${MIN_API}-clang" "CXX_${u}=$TC/${t}${MIN_API}-clang++"
     export "AR_${u}=$TC/llvm-ar" "RANLIB_${u}=$TC/llvm-ranlib"
+    # An earlier library is removed first, so that a build which leaves none cannot
+    # pass the checks below with a stale one.
+    local so=$tdir/$t/release/lib$LIB.so
+    rm -f "$so"
     group "cargo rustc --crate-type cdylib --target $t"
     cargo rustc --locked --release -p tawara-mobile --lib --crate-type cdylib --target "$t"
     endgroup
-    local so=target/$t/release/lib$LIB.so
+    [ -f "$so" ] || die "$so was not built"
     "$TC/llvm-readelf" --dyn-syms -W "$so" | grep -qE ' ANativeActivity_onCreate$' \
       || die "$so does not export ANativeActivity_onCreate"
     # 16 KB pages: every LOAD segment aligned to at least 2**14.
@@ -122,7 +137,7 @@ build() {
 apk() {
   ndk_paths
   cd "$ROOT"
-  local bt jar w=$OUT/apk build badging
+  local bt jar w=$OUT/apk build badging tdir
   # The development number, or a store build's committed counter (see the
   # sourced platform/build-number.sh); a refused number ends the script here.
   build=$(bn_number)
@@ -143,11 +158,12 @@ apk() {
   echo "build-tools $bt; platform $jar; build number $build"
   rm -rf "$w"
   mkdir -p "$w/root/lib" "$w/res"
+  tdir=$(target_dir) || die "cargo metadata gave no target directory"
   for t in "${TARGETS[@]}"; do
     local abi
     abi=$(abi_of "$t")
     mkdir -p "$w/root/lib/$abi"
-    "$TC/llvm-strip" --strip-debug -o "$w/root/lib/$abi/lib$LIB.so" "target/$t/release/lib$LIB.so"
+    "$TC/llvm-strip" --strip-debug -o "$w/root/lib/$abi/lib$LIB.so" "$tdir/$t/release/lib$LIB.so"
   done
   # A throwaway key for this run only: the APK is for the emulator and for
   # the owner's device check, never for distribution.
@@ -1058,5 +1074,6 @@ case ${1:-} in
   apk) need_sdk; apk ;;
   emulator) need_sdk; on_emulator ;;
   selftest) selftest ;;
-  *) die "usage: $0 build|apk|emulator|selftest" ;;
+  target-dir) target_dir ;;
+  *) die "usage: $0 build|apk|emulator|selftest|target-dir" ;;
 esac

@@ -36,11 +36,13 @@
 #   TAWARA_UPLOAD_KEYPASS     signing: the key's password, when it is not the
 #                             keystore's. Defaults to the keystore's password.
 #   TAWARA_ANDROID_APK=1      also makes a universal APK for sideloading, signed
-#                             with the same upload key (bundletool build-apks).
-#   TAWARA_ANDROID_DRY_RUN=1  builds and checks everything. The release-only inputs
-#                             (the committed build number, the icon, a clean tree)
-#                             become warnings, and the outputs go to a separate
-#                             folder, so that a dry run is never taken for a release.
+#                             with the same upload key (bundletool build-apks). A dry
+#                             run makes none.
+#   TAWARA_ANDROID_DRY_RUN=1  builds and checks everything, and never signs. The
+#                             release-only inputs (the committed build number, the
+#                             icon, a clean tree) become warnings, the upload key is
+#                             not read, and the outputs go to a separate folder, so
+#                             that a dry run is never taken for a release.
 #   TAWARA_ANDROID_OUT        where the outputs go (default target/android-release,
 #                             or target/android-dry-run for a dry run).
 #   TAWARA_RELEASE_CACHE      where bundletool's jar is kept, checked against its
@@ -304,7 +306,7 @@ universal_apk() {
 
 main() {
   cd "$ROOT"
-  local dry=0 sign=0 want_apk=0 build version app_version icon="" NAME unset_list=""
+  local dry=0 sign=0 want_apk=0 build version app_version icon="" NAME unset_list="" tdir
   local aab apk=""
   case ${TAWARA_ANDROID_DRY_RUN:-0} in
     0) ;;
@@ -352,11 +354,16 @@ main() {
   fetch_bundletool
   [ "$(bt version)" = "$BUNDLETOOL_VERSION" ] || die "bundletool at $BT_JAR is not $BUNDLETOOL_VERSION"
 
-  # Signing. Each variable that is unset is named, and the bundle is left unsigned.
+  # Signing. A dry run never signs and makes no universal APK, whatever the upload
+  # variables say: its outputs are for checking the build, and the upload key is not
+  # read. Otherwise each variable that is unset is named, and the bundle is left unsigned.
   [ -n "${TAWARA_UPLOAD_KEYSTORE:-}" ] || unset_list="$unset_list TAWARA_UPLOAD_KEYSTORE"
   [ -n "${TAWARA_UPLOAD_KEY_ALIAS:-}" ] || unset_list="$unset_list TAWARA_UPLOAD_KEY_ALIAS"
   store_pass=${TAWARA_UPLOAD_STOREPASS:-}
-  if [ -n "$unset_list" ]; then
+  if [ "$dry" = 1 ]; then
+    note "dry run: nothing is signed and no universal APK is made"
+    want_apk=0
+  elif [ -n "$unset_list" ]; then
     note "signing SKIPPED, because these are unset:$unset_list. Set them to sign (docs/RELEASE.md section 6.4)."
   else
     [ -f "$TAWARA_UPLOAD_KEYSTORE" ] || die "TAWARA_UPLOAD_KEYSTORE is not a file"
@@ -395,6 +402,9 @@ main() {
   # export of ANativeActivity_onCreate and the 16 KB LOAD alignment).
   note "building the libraries with platform/android/tawara.sh build"
   ANDROID_HOME=$SDK RUNNER_TEMP=$WORK/runner bash "$HERE/tawara.sh" build
+  # Where build left them: cargo's target directory, which CARGO_TARGET_DIR can move.
+  tdir=$(RUNNER_TEMP=$WORK/runner bash "$HERE/tawara.sh" target-dir) \
+    || die "tawara.sh cannot name the target directory"
   TC=$NDK/toolchains/llvm/prebuilt/$(ndk_host)/bin
   [ -x "$TC/llvm-strip" ] || die "no llvm-strip at $TC"
 
@@ -442,7 +452,7 @@ main() {
   for t in "${TARGETS[@]}"; do
     abi=$(abi_of "$t")
     mkdir -p "$module/lib/$abi"
-    "$TC/llvm-strip" --strip-debug -o "$module/lib/$abi/lib$LIB.so" "$ROOT/target/$t/release/lib$LIB.so"
+    "$TC/llvm-strip" --strip-debug -o "$module/lib/$abi/lib$LIB.so" "$tdir/$t/release/lib$LIB.so"
   done
   rm -f "$WORK/base.zip"
   (cd "$module" && zip -q -X -D -0 -r "$WORK/base.zip" lib)

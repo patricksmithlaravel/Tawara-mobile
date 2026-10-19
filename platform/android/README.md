@@ -87,7 +87,8 @@ validated with Google.
    say. The same version and the same counter serve both stores.
 3. Optional: a dry run, `TAWARA_ANDROID_DRY_RUN=1 platform/android/release.sh`. It
    builds and checks everything, treats the release-only inputs as warnings, and
-   writes to `target/android-dry-run`.
+   writes to `target/android-dry-run`. It never signs and makes no universal APK,
+   whatever the upload variables say.
 4. Check out the tag, then run `platform/android/release.sh` with the variables below
    set, `TAWARA_BUILD_NUMBER=N` among them. The keystore password is typed at the
    prompt, or set in `TAWARA_UPLOAD_STOREPASS`.
@@ -126,8 +127,10 @@ on a command line.
   defaults to the keystore's.
 - `TAWARA_ANDROID_APK=1`: also makes `Tawara-X.Y.Z+N.apk`, a universal APK for
   sideloading, signed with the same upload key. RELEASE.md section 6.4 names a
-  throwaway key for its emulator run on that APK; the script does not use one.
-- `TAWARA_ANDROID_DRY_RUN=1`: builds and checks everything, as step 3 says.
+  throwaway key for its emulator run on that APK; the script does not use one. A dry
+  run makes none.
+- `TAWARA_ANDROID_DRY_RUN=1`: builds and checks everything, as step 3 says. It never
+  signs.
 - `TAWARA_ANDROID_OUT`: where the outputs go; `target/android-release` by default.
 - `TAWARA_RELEASE_CACHE`: where the bundletool jar is kept; `~/.cache/tawara-release`
   by default.
