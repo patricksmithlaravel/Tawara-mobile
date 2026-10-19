@@ -27,15 +27,15 @@
 # on leaving the screen; that a copy is set local-only and expiring, as a
 # test asserts, and is gone from the simulator's pasteboard once its lifetime
 # has passed (D32 item 10); that the Android manifest carries the backup rules
-# and the nineteen configuration changes the activity handles (D32 item 9: the
-# eighteen of API 35 and assetsPaths of API 36), and the iOS bundle the scene
-# manifest; that a change of the navigation mode's overlay, which changes the
-# asset paths, reaches the Android application and leaves its activity in
-# front, in its process and not relaunched (D32 item 9 (i)); and, on the x86_64
-# emulator, that with 'Don't keep activities' on the framework destroys the
-# activity after Back, and the process then ends, without an abort (D32 item
-# 9). Whether the lock is done by then is reported as a count and does not fail
-# the job (D32 item 9 (j); Tawara-wallet #25). The committed
+# and the twenty configuration changes the activity handles (D32 item 9: the
+# eighteen of API 35, and assetsPaths and resourcesUnused of API 36), and the
+# iOS bundle the scene manifest; that a change of the navigation mode's overlay,
+# which changes the asset paths, reaches the Android application and leaves its
+# activity in front, in its process and not relaunched (D32 item 9 (i)); and,
+# on the x86_64 emulator, that with 'Don't keep activities' on the framework
+# destroys the activity after Back, and the process then ends, without an abort
+# (D32 item 9). Whether the lock is done by then is reported as a count and
+# does not fail the job (D32 item 9 (j); Tawara-wallet #25). The committed
 # THIRD-PARTY-NOTICES.txt is the
 # file ci/notices.sh writes, byte for byte (Tawara-wallet's D35). A green run
 # does not say that the notices are in the app bundles, which is packaging work

@@ -5,6 +5,7 @@
 #   platform/android/tawara.sh apk        # the APK, signed with a throwaway debug key
 #   platform/android/tawara.sh emulator   # boot an emulator, install, run the checks
 #   platform/android/tawara.sh selftest   # the crash and destroy checks, on logged lines
+#   platform/android/tawara.sh target-dir # the directory build leaves the libraries in
 #
 # No Java, Kotlin or Gradle: the activity is android.app.NativeActivity, the
 # APK is linked with aapt2 and zipped, aligned and signed by hand, as phase
@@ -27,9 +28,9 @@ PKG=com.patricksmithlaravel.tawara
 ACTIVITY=android.app.NativeActivity
 LIB=tawara_mobile
 MIN_API=26
-TARGET_API=35
+TARGET_API=36
 TARGETS=(aarch64-linux-android x86_64-linux-android)
-IMG="system-images;android-35;google_apis;x86_64"
+IMG="system-images;android-36;google_apis;x86_64"
 NDK_PIN=29.0.14206865
 SERIAL=emulator-5554
 TAG=RustStdoutStderr
@@ -38,6 +39,10 @@ TAG=RustStdoutStderr
 LOG_BUFFERS=main,system,crash,events
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
+# The build number (docs/RELEASE.md section 5.2): bn_number gives the number
+# versionCode takes, see platform/build-number.sh.
+# shellcheck source=../build-number.sh
+. "$ROOT/platform/build-number.sh"
 OUT=${RUNNER_TEMP:-/tmp}/tawara-android
 # build, apk and emulator need the SDK (need_sdk); selftest runs without it.
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
@@ -50,15 +55,34 @@ endgroup() { echo "::endgroup::"; }
 die() { echo "::error::$*"; exit 1; }
 need_sdk() { [ -n "$SDK" ] || die "ANDROID_HOME is not set"; }
 
+# ndk_paths: the pinned NDK (docs/RELEASE.md section 1.6), the one the release
+# names, not whichever 29.x is installed; and its toolchain for this host.
 ndk_paths() {
-  NDK=$(ls -d "$SDK"/ndk/29.* 2>/dev/null | sort -V | tail -1 || true)
-  if [ -z "$NDK" ]; then
+  NDK=$SDK/ndk/$NDK_PIN
+  if [ ! -d "$NDK" ]; then
     # `yes` dies of SIGPIPE when sdkmanager exits; only sdkmanager's status counts.
     (yes 2>/dev/null || true) | sdkmanager --install "ndk;$NDK_PIN" >/dev/null
-    NDK=$SDK/ndk/$NDK_PIN
   fi
-  TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+  TC=$NDK/toolchains/llvm/prebuilt/$(ndk_host)/bin
   [ -x "$TC/clang" ] || die "no NDK clang at $TC"
+}
+
+# ndk_host: the NDK's prebuilt directory for this machine. The NDK has
+# linux-x86_64 on Linux. On macOS it ships darwin-x86_64, whose clang is a
+# universal binary, so it runs natively on Apple silicon too; darwin-arm64 is
+# taken when the NDK ships one.
+ndk_host() {
+  case $(uname -s) in
+    Linux) echo linux-x86_64 ;;
+    Darwin)
+      if [ -d "$NDK/toolchains/llvm/prebuilt/darwin-arm64" ]; then
+        echo darwin-arm64
+      else
+        echo darwin-x86_64
+      fi
+      ;;
+    *) die "no NDK host directory for $(uname -s)" ;;
+  esac
 }
 
 abi_of() {
@@ -68,21 +92,37 @@ abi_of() {
   esac
 }
 
+# target_dir: cargo's target directory for this workspace, where build leaves the
+# libraries. CARGO_TARGET_DIR, or build.target-dir in a Cargo config, moves it away
+# from target/, so nothing here reads a literal target/.
+target_dir() {
+  (cd "$ROOT" && cargo metadata --locked --no-deps --format-version 1) \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])'
+}
+
 # --------------------------------------------------------------------- build
 build() {
   ndk_paths
   echo "NDK $NDK"
   cd "$ROOT"
+  local tdir
+  tdir=$(target_dir) || die "cargo metadata gave no target directory"
   for t in "${TARGETS[@]}"; do
     local u=${t//-/_}
-    local U=${u^^}
+    # Upper case by tr, not ${u^^}, which macOS's bash 3.2 does not have.
+    local U
+    U=$(printf '%s' "$u" | tr 'a-z' 'A-Z')
     export "CARGO_TARGET_${U}_LINKER=$TC/${t}${MIN_API}-clang"
     export "CC_${u}=$TC/${t}${MIN_API}-clang" "CXX_${u}=$TC/${t}${MIN_API}-clang++"
     export "AR_${u}=$TC/llvm-ar" "RANLIB_${u}=$TC/llvm-ranlib"
+    # An earlier library is removed first, so that a build which leaves none cannot
+    # pass the checks below with a stale one.
+    local so=$tdir/$t/release/lib$LIB.so
+    rm -f "$so"
     group "cargo rustc --crate-type cdylib --target $t"
     cargo rustc --locked --release -p tawara-mobile --lib --crate-type cdylib --target "$t"
     endgroup
-    local so=target/$t/release/lib$LIB.so
+    [ -f "$so" ] || die "$so was not built"
     "$TC/llvm-readelf" --dyn-syms -W "$so" | grep -qE ' ANativeActivity_onCreate$' \
       || die "$so does not export ANativeActivity_onCreate"
     # 16 KB pages: every LOAD segment aligned to at least 2**14.
@@ -97,7 +137,10 @@ build() {
 apk() {
   ndk_paths
   cd "$ROOT"
-  local bt jar w=$OUT/apk
+  local bt jar w=$OUT/apk build badging tdir
+  # The development number, or a store build's committed counter (see the
+  # sourced platform/build-number.sh); a refused number ends the script here.
+  build=$(bn_number)
   bt=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
   # aapt2 links against API 36's jar, pinned rather than the newest one
   # installed, because it knows assetsPaths from that platform only (D32 item 9
@@ -112,14 +155,15 @@ apk() {
     (yes 2>/dev/null || true) | sdkmanager --install "platforms;android-36" >/dev/null
   fi
   [ -f "$jar" ] || die "no android-36 platform in $SDK/platforms (sdkmanager 'platforms;android-36')"
-  echo "build-tools $bt; platform $jar"
+  echo "build-tools $bt; platform $jar; build number $build"
   rm -rf "$w"
   mkdir -p "$w/root/lib" "$w/res"
+  tdir=$(target_dir) || die "cargo metadata gave no target directory"
   for t in "${TARGETS[@]}"; do
     local abi
     abi=$(abi_of "$t")
     mkdir -p "$w/root/lib/$abi"
-    "$TC/llvm-strip" --strip-debug -o "$w/root/lib/$abi/lib$LIB.so" "target/$t/release/lib$LIB.so"
+    "$TC/llvm-strip" --strip-debug -o "$w/root/lib/$abi/lib$LIB.so" "$tdir/$t/release/lib$LIB.so"
   done
   # A throwaway key for this run only: the APK is for the emulator and for
   # the owner's device check, never for distribution.
@@ -131,7 +175,7 @@ apk() {
   # with run-as; a release build (phase 5) is not.
   "$bt/aapt2" link -o "$w/unsigned.apk" -I "$jar" --manifest platform/android/AndroidManifest.xml \
     -R "$w"/res/*.flat --min-sdk-version "$MIN_API" --target-sdk-version "$TARGET_API" --debug-mode \
-    --version-code 1 --version-name "$(cargo metadata --no-deps --format-version 1 \
+    --version-code "$build" --version-name "$(cargo metadata --no-deps --format-version 1 \
       | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="tawara-mobile"))')"
   # Stored, not deflated, and 16 KB-aligned: the manifest says
   # extractNativeLibs="false", so the system maps the libraries in place.
@@ -141,7 +185,14 @@ apk() {
     --ks-key-alias androiddebugkey --v4-signing-enabled false --out "$OUT/tawara.apk" "$w/aligned.apk"
   "$bt/apksigner" verify "$OUT/tawara.apk"
   "$bt/zipalign" -c -P 16 4 "$OUT/tawara.apk"
-  "$bt/aapt2" dump badging "$OUT/tawara.apk" | grep -E "^package:|targetSdk|native-code|uses-permission"
+  badging=$("$bt/aapt2" dump badging "$OUT/tawara.apk")
+  # The versionCode the badging reports must be the build number, as iOS's
+  # CFBundleVersion is. A case pattern, not grep -q, so that no pipe closes early.
+  case $badging in
+    *"versionCode='$build'"*) ;;
+    *) die "$OUT/tawara.apk: the versionCode is not $build" ;;
+  esac
+  printf '%s\n' "$badging" | grep -E "^package:|targetSdk|native-code|uses-permission"
   "$bt/aapt2" dump xmltree --file AndroidManifest.xml "$OUT/tawara.apk" >"$OUT/manifest.txt"
   ls -la "$OUT/tawara.apk"
 }
@@ -667,18 +718,18 @@ on_emulator() {
   check manifest.dataExtractionRules "android:dataExtractionRules names the rules" \
     grep -q 'android:dataExtractionRules' "$OUT/manifest.txt"
   # The activity handles every configuration change this mask names (D32
-  # item 9), so the mask must hold the nineteen names: the eighteen of API 35
-  # and assetsPaths of API 36. A name left out lets Android recreate the
-  # activity, which ends the application. The detail shows each mask aapt2
-  # read, to compare bit by bit with 0xd000ffff. They are joined on one line,
-  # so a second element with a mask of its own fails the check rather than
-  # hide behind the first.
+  # item 9), so the mask must hold the twenty names: the eighteen of API 35,
+  # and assetsPaths and resourcesUnused of API 36. A name left out lets Android
+  # recreate the activity, which ends the application. The detail shows each
+  # mask aapt2 read, to compare bit by bit with 0xd800ffff. They are joined on
+  # one line, so a second element with a mask of its own fails the check rather
+  # than hide behind the first.
   local changes
   changes=$(awk 'match($0, /configChanges\(0x[0-9a-f]+\)=.*/) {
     s = s (s == "" ? "" : "; ") substr($0, RSTART)
   } END { print (s == "" ? "no configChanges" : s) }' "$OUT/manifest.txt")
-  check manifest.configChanges "want 0xd000ffff (19 names): $changes" \
-    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0xd000ffff$' <<<"$changes"
+  check manifest.configChanges "want 0xd800ffff (20 names): $changes" \
+    grep -qE '^configChanges\(0x[0-9a-f]+\)=(\(type 0x11\))?0xd800ffff$' <<<"$changes"
   endgroup
 
   group "install and start"
@@ -1023,5 +1074,6 @@ case ${1:-} in
   apk) need_sdk; apk ;;
   emulator) need_sdk; on_emulator ;;
   selftest) selftest ;;
-  *) die "usage: $0 build|apk|emulator|selftest" ;;
+  target-dir) target_dir ;;
+  *) die "usage: $0 build|apk|emulator|selftest|target-dir" ;;
 esac

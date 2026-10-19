@@ -13,7 +13,8 @@ Bundle identifier: `com.patricksmithlaravel.tawara` (D8).
   (D45 item 6; its wording is provisional until the owner approves it), and
   `NSCameraUsageDescription`, the usage text the QR scanner's camera needs
   (D42; provisional until the owner approves it);
-  `tawara.sh` fills in the platform, the minimum system and the version.
+  `tawara.sh` fills in the platform, the minimum system, the version and the
+  build number, which is `CFBundleVersion` (`platform/build-number.sh`).
 - `tawara.sh`: `device` (built and linked for a phone; installing it needs
   signing, phase 5's) and `simulator` (bundled, signed ad hoc, run on a
   simulator with the checks CI runs, `.github/workflows/mobile.yml`). Those
@@ -95,3 +96,144 @@ Features menu, not from the command line.
 Phase 5's signed build adds the `com.apple.developer.default-data-protection`
 entitlement, so that every file the application makes is protected from
 the start, not only those under the folder `tawara.sh` checks.
+
+## The App Store upload
+
+`release.sh` makes `Tawara-X.Y.Z+N.ipa`, as Tawara-wallet's `docs/RELEASE.md`
+section 6.5 and `docs/DECISIONS.md` D36 describe. It runs on the owner's Mac, from
+the commit that is tagged for the upload (RELEASE.md sections 5.1 to 5.4). CI never
+runs it (D13, D36 item 4). D36 is proposed, and the script follows its
+recommendations, which await the owner's decision.
+
+It builds the `aarch64-apple-ios` release binary and makes `Tawara.app` from
+`Info.plist.in`, with the `DT` keys of the Xcode in use, the build number as
+`CFBundleVersion`, the icon compiled into `Assets.car` with `actool`,
+`PrivacyInfo.xcprivacy`, and `THIRD-PARTY-NOTICES.txt` and `LICENSE.md` at the
+bundle's root (RELEASE.md section 4). With the signing variables set, it writes the
+entitlements, embeds the App Store profile, signs the bundle, reads the entitlements
+back, zips `Payload` with `ditto` and checks the archive. It prints the `altool`
+upload commands and runs none of them.
+
+### Release steps
+
+The steps follow Tawara-wallet's `docs/RELEASE.md` (sections 1, 3, 5, 6.5, 7 and 8),
+in this order. Steps 2 to 5 change and tag the repository, so the release is built
+from a commit that says its own version and build number.
+
+1. Settle what the owner supplies, listed at the end of this section, and install
+   Xcode 26.6 at `/Applications/Xcode_26.6.app` beside Xcode 27 (RELEASE.md section
+   1.6).
+2. Set the version. `version` under `[workspace.package]` in `Cargo.toml` is the
+   release's `X.Y.Z`, and the `tawara-app` `rev` is the Tawara-wallet release commit,
+   by its full hash (RELEASE.md sections 3 and 5.1). The release refuses unless
+   `Cargo.lock` gives `tawara-app` the same version.
+3. Raise the build number. `platform/build-number.sh next` prints N, and
+   `platform/build-number.sh bump N` records it in `platform/build-number`
+   (RELEASE.md section 5.2).
+4. Regenerate the notices with `bash ci/notices.sh` (RELEASE.md section 5.3).
+5. Commit steps 2 to 4 as the release commit, then tag it `vX.Y.Z+N` with an
+   annotated tag, whose message names the library's `rev`, the fork's `rev` and the
+   wallet commit (RELEASE.md section 5.4). Tags are never moved.
+6. Check out the tag. The release refuses a tree that differs from its commit.
+7. Optional: a dry run, with `TAWARA_IOS_DRY_RUN=1` and `TAWARA_EXPORT_COMPLIANCE`
+   set. It builds and checks everything, and signs and zips nothing.
+8. The release: with the variables below set, `TAWARA_BUILD_NUMBER=N` among them,
+   run `platform/ios/release.sh`. With the signing variables set, it prints the path
+   and SHA-256 of `Tawara-X.Y.Z+N.ipa`, and the commands that validate and upload it.
+   When one of the signing variables is unset, it says which, makes no `.ipa` and
+   exits 0, so read the last line.
+9. Validate and upload the `.ipa` by hand, with those commands or with Transporter.
+   Then TestFlight, and the device checks (RELEASE.md sections 6.5, 7 and 8).
+
+### Environment
+
+None of these values is written into a file the repository keeps.
+
+- `TAWARA_EXPORT_COMPLIANCE`, required in every mode: `true` or `false`, counsel's
+  answer on encryption (RELEASE.md section 1.2). It becomes
+  `ITSAppUsesNonExemptEncryption`, which `Info.plist.in` leaves out on purpose. There
+  is no default.
+- `TAWARA_BUILD_NUMBER`, required for a release: the committed counter. Run
+  `platform/build-number.sh bump N`, commit it, then set this to N. A dry run takes
+  the development number, 1.
+- `TAWARA_IOS_ICON_DIR`, required for a release: the folder that holds
+  `Assets.xcassets`, with an `AppIcon` set. The icon is the owner's. A dry run
+  without it leaves the icon out, with a warning.
+- `TAWARA_TEAM_ID`, `TAWARA_IOS_PROFILE`, `TAWARA_IOS_SIGN_ID`: the team, the App
+  Store profile and the Apple Distribution identity. If any is unset, the script
+  stops before signing, names what is unset, makes no `.ipa` and prints no upload
+  command. It exits 0 there, so read the last line.
+- `TAWARA_IOS_DRY_RUN=1`: build and check, then stop before signing. A dry run is
+  never uploaded, so an SDK other than 26.x is a warning in a dry run and a refusal
+  in a release.
+- `DEVELOPER_DIR`: when it is unset and `/Applications/Xcode_26.6.app` exists, that
+  Xcode is used. Otherwise the active one is, and a release needs both the iPhoneOS
+  SDK and the SDK the binary is linked with (`vtool -show-build`) to be 26.x.
+- `TAWARA_IOS_OUT`: where the bundle and the `.ipa` go; `target/ios-release` by
+  default, which git ignores.
+
+Before anything is signed, a release refuses: a missing `TAWARA_BUILD_NUMBER` or
+icon; tracked files that differ from the commit; a build number that is not the
+committed counter (`bn_number`, step 1 above); a `tawara-mobile` version that differs
+from the `tawara-app` version in `Cargo.lock` (RELEASE.md section 5.1); a binary that
+is not an iOS device binary with minos 16.0; and a non-26.x SDK. The profile must be
+an App Store profile for this app, with `get-task-allow` false and no device list.
+After signing, the entitlements codesign reads back must equal the file the bundle
+was signed with. The archive must hold `Payload/Tawara.app/` and no AppleDouble `._`
+entry.
+
+Entitlements (`write_entitlements`): `application-identifier` and
+`com.apple.developer.team-identifier` from `TAWARA_TEAM_ID`;
+`com.apple.developer.default-data-protection` as `NSFileProtectionComplete` (D32
+item 3); `get-task-allow` false. There is no `keychain-access-groups`. The application
+identifier is the default Keychain access group, and the item D45 keeps belongs to
+this app alone. The -34018 failure above comes from a bundle with no application
+identifier, and an ad hoc signed bundle has none.
+
+### Privacy manifest
+
+`PrivacyInfo.xcprivacy`, from `nm -u` on the release binary: `C617.1` for
+FileTimestamp, because the binary imports `stat`, `lstat`, `fstat` and
+`fstatat`, which read the metadata of files, and the store's files are in the app's
+container. That reading is taken from the code, and the owner's Xcode privacy report
+on the archive confirms it. `35F9.1` for SystemBootTime, because the binary imports
+`mach_absolute_time`, which Rust's `Instant` uses. The binary
+imports no disk-space call, `NSUserDefaults` or active-keyboard API, so none is
+declared. It also imports `clock_gettime`, and no reason code for it was found in the
+sources checked, so the App Store validation of the 26.x archive decides it.
+`NSPrivacyTracking` is false. `NSPrivacyCollectedDataTypes` is empty, on the reasoning
+recorded in the file. Who operates the default node, and whether it keeps the
+requests, is open (D43 item 5; the threat model's T28). The owner decides the App
+Store privacy answers before submission, and they must agree with the file. The
+imports were read from a binary linked with the iOS 27.0 SDK, the one on the machine
+where they were checked, so they are read again from the 26.x build before
+submission.
+
+### What the owner supplies
+
+None of these is in the repository or in CI (RELEASE.md section 1.2).
+
+- Enrolment in the Apple Developer Program as an organisation (RELEASE.md section
+  1.2; App Review guideline 3.1.5(i)).
+- The App ID `com.patricksmithlaravel.tawara`, with Data Protection set to Complete
+  Protection, and the App Store Connect app record for it.
+- The team identifier, 10 characters: `TAWARA_TEAM_ID`.
+- An Apple Distribution certificate in the keychain of the signing Mac. Its identity
+  name, as `security find-identity` lists it: `TAWARA_IOS_SIGN_ID`.
+- An App Store provisioning profile for that App ID, as a `.mobileprovision` file:
+  `TAWARA_IOS_PROFILE`. The script refuses a profile for another app, a profile that
+  lists devices, and one that does not say `get-task-allow` is false.
+- An App Store Connect API key, with its key ID and issuer ID, for `altool` or
+  Transporter. The script never reads the key, and the printed commands take the two
+  IDs.
+- The app icon: a folder holding `Assets.xcassets` with an `AppIcon` set, opaque at
+  1024 pixels. It is Tawara's own mark, not the coin mark (RELEASE.md section 1.2;
+  D27 item 2): `TAWARA_IOS_ICON_DIR`.
+- The export-compliance answer, with counsel: `TAWARA_EXPORT_COMPLIANCE`. `true` means
+  the app uses encryption beyond the exempt kinds; `false` means it does not.
+- The App Store privacy answers, which must agree with `PrivacyInfo.xcprivacy`, and
+  the reason codes confirmed against Apple's list and the iOS 26.x build (see the
+  privacy manifest above).
+- Xcode 26.6 beside Xcode 27 (RELEASE.md section 1.6).
+- The upload, the TestFlight build and the device checks on the signed build
+  (RELEASE.md sections 7 and 8).

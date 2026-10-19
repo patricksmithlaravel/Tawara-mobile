@@ -744,3 +744,151 @@ fn only_the_listed_crates_get_the_standard_mit_text() {
          up in its repository first (Tawara-wallet's docs/DECISIONS.md D35, item 6 (a))"
     );
 }
+
+/// Runs platform/build-number.sh in `dir` with `args`, with TAWARA_BUILD_NUMBER
+/// set to `store` when that is given. Returns whether it succeeded, and what it
+/// printed, without the final newline.
+fn build_number(dir: &Path, store: Option<&str>, args: &[&str]) -> (bool, String) {
+    let mut command = Command::new("bash");
+    command
+        .arg(dir.join("platform/build-number.sh"))
+        .args(args)
+        .env_remove("TAWARA_BUILD_NUMBER");
+    if let Some(number) = store {
+        command.env("TAWARA_BUILD_NUMBER", number);
+    }
+    let output = command
+        .output()
+        .expect("bash runs platform/build-number.sh");
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end_matches('\n')
+            .to_owned(),
+    )
+}
+
+/// The build number (Tawara-wallet's docs/RELEASE.md section 5.2) rises by one
+/// for every upload to either store, and a store build takes only the committed
+/// counter. platform/build-number.sh decides both, and both platform scripts
+/// take their number from it, for iOS's CFBundleVersion and Android's
+/// versionCode. A store refuses a number it has seen, so a decrease, a repeat, a
+/// skip or a value that is not a plain integer must not get as far as a build.
+#[test]
+fn the_build_number_rises_by_one_for_every_upload() {
+    let root = root();
+
+    // NEW follows OLD, both plain integers, and NEW is no higher than the
+    // highest versionCode Google Play accepts.
+    for (new, old) in [("1", "0"), ("7", "6"), ("2100000000", "2099999999")] {
+        let (ok, _) = build_number(&root, None, &["check", new, old]);
+        assert!(
+            ok,
+            "check {new} {old}: {new} follows {old}, and must be admitted"
+        );
+    }
+    // Repeated, lowered, skipped, not a plain integer, or out of range.
+    for (new, old) in [
+        ("6", "6"),
+        ("5", "6"),
+        ("8", "6"),
+        ("0", "0"),
+        ("0", "-1"),
+        ("07", "6"),
+        ("7.0", "6"),
+        ("+7", "6"),
+        ("-7", "6"),
+        ("7a", "6"),
+        (" 7", "6"),
+        ("", "6"),
+        ("2100000001", "2100000000"),
+    ] {
+        let (ok, _) = build_number(&root, None, &["check", new, old]);
+        assert!(!ok, "check '{new}' '{old}' must be refused");
+    }
+
+    // The committed counter is a valid counter, and a build with no store
+    // number takes the development number, 1, whatever the counter is.
+    let (ok, _) = build_number(&root, None, &["counter"]);
+    assert!(ok, "platform/build-number must hold one plain integer");
+    let (ok, number) = build_number(&root, None, &["number"]);
+    assert!(
+        ok && number == "1",
+        "a build with no TAWARA_BUILD_NUMBER takes the development number 1, not {number:?}"
+    );
+
+    // The counter is raised by one and only in the file it names. The test
+    // works on a copy, so the committed counter is left as it is.
+    let dir = std::env::temp_dir().join(format!("tawara-build-number-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("platform")).expect("a scratch directory can be made");
+    std::fs::copy(
+        root.join("platform/build-number.sh"),
+        dir.join("platform/build-number.sh"),
+    )
+    .expect("the script can be copied");
+    let file = dir.join("platform/build-number");
+    std::fs::write(&file, "6\n").expect("the counter can be written");
+    for refused in ["5", "6", "8", "07"] {
+        let (ok, _) = build_number(&dir, None, &["bump", refused]);
+        assert!(!ok, "bump {refused} must be refused while the counter is 6");
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("the counter can be read"),
+            "6\n",
+            "a refused bump leaves the counter as it was"
+        );
+    }
+    let (ok, _) = build_number(&dir, None, &["bump", "7"]);
+    assert!(ok, "bump 7 follows the counter 6");
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("the counter can be read"),
+        "7\n"
+    );
+
+    // A store build takes the committed counter and no other number.
+    let (ok, number) = build_number(&dir, Some("7"), &["number"]);
+    assert!(
+        ok && number == "7",
+        "a store build of 7 takes 7 while the counter is 7, not {number:?}"
+    );
+    for other in ["6", "8", "0", "07", "x"] {
+        let (ok, _) = build_number(&dir, Some(other), &["number"]);
+        assert!(
+            !ok,
+            "a store build of {other} must be refused while the counter is 7"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Both platforms take the number from the counter, not from a literal.
+    let plist = std::fs::read_to_string(root.join("platform/ios/Info.plist.in"))
+        .expect("platform/ios/Info.plist.in is committed");
+    let version = plist
+        .split("<key>CFBundleVersion</key>")
+        .nth(1)
+        .and_then(|rest| rest.lines().find(|line| line.contains("<string>")))
+        .unwrap_or("");
+    assert!(
+        version.contains("<string>@BUILD@</string>"),
+        "CFBundleVersion must be @BUILD@, not {version:?}"
+    );
+    let ios = std::fs::read_to_string(root.join("platform/ios/tawara.sh"))
+        .expect("platform/ios/tawara.sh is committed");
+    assert!(
+        ios.contains(r#"s/@BUILD@/$build/"#),
+        "platform/ios/tawara.sh must fill @BUILD@ with the build number"
+    );
+    let android = std::fs::read_to_string(root.join("platform/android/tawara.sh"))
+        .expect("platform/android/tawara.sh is committed");
+    assert!(
+        android.contains(r#"--version-code "$build""#),
+        "platform/android/tawara.sh must link the build number as the versionCode"
+    );
+    for (name, script) in [("iOS", &ios), ("Android", &android)] {
+        assert!(
+            script.contains(r#". "$ROOT/platform/build-number.sh""#)
+                && script.contains("bn_number"),
+            "the {name} script must take its build number from platform/build-number.sh"
+        );
+    }
+}

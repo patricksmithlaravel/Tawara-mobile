@@ -2,8 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Tawara for iOS (docs/DECISIONS.md D32). The executable is crates/mobile's
      `tawara` binary; winit calls UIApplicationMain from it, so there is no
-     storyboard and no Swift or Objective-C source. @PLATFORM@, @MINOS@ and
-     @VERSION@ are filled in by platform/ios/tawara.sh. -->
+     storyboard and no Swift or Objective-C source. @PLATFORM@, @MINOS@,
+     @VERSION@ and @BUILD@ are filled in by platform/ios/tawara.sh; the
+     build number is the one platform/build-number.sh gives (docs/RELEASE.md
+     section 5.2). -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
@@ -23,7 +25,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>@VERSION@</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>@BUILD@</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>@PLATFORM@</string>
@@ -88,5 +90,9 @@
 	     without one, so UIRequiredDeviceCapabilities names none. -->
 	<key>NSCameraUsageDescription</key>
 	<string>Tawara uses the camera to read a QR code with a destination address, when you choose to scan one.</string>
+	<!-- TODO, for the owner and counsel (docs/RELEASE.md section 1.2, lines 125-131):
+	     ITSAppUsesNonExemptEncryption is deliberately not in this file. release.sh
+	     writes it from TAWARA_EXPORT_COMPLIANCE, which it requires, so that no
+	     upload claims an export answer that nobody gave. -->
 </dict>
 </plist>

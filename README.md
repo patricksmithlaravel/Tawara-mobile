@@ -34,8 +34,9 @@ crates/
 ci/
   notices.sh     writes THIRD-PARTY-NOTICES.txt, which CI compares with the committed file
 platform/
-  android/       manifest, backup rules, build and check script
-  ios/           Info.plist, build and check script
+  android/       manifest, backup rules, build, check and release scripts
+  ios/           Info.plist, privacy manifest, build, check and release scripts
+  build-number   the store build counter, and build-number.sh, which raises it
 about.toml, THIRD-PARTY-NOTICES.hbs, THIRD-PARTY-NOTICES.txt   the notices (below)
 .github/workflows/mobile.yml   the checks, the emulator and the simulators
 ```
@@ -59,12 +60,34 @@ platform/android/tawara.sh apk        # the APK, signed with a throwaway debug k
 platform/android/tawara.sh emulator   # boot an emulator, install, run the checks
 ```
 
+`platform/android/release.sh` makes the Google Play bundle. It runs on the
+owner's machine with the Android SDK pieces that docs/RELEASE.md section 1.6
+names and the upload key, and CI never runs it (`platform/android/README.md`).
+
 iOS needs a Mac with Xcode:
 
 ```
 platform/ios/tawara.sh device      # build and link for a phone
 platform/ios/tawara.sh simulator   # bundle, boot a simulator, run the checks
 ```
+
+`platform/ios/release.sh` makes the App Store upload. It runs on the owner's Mac,
+with Xcode 26.x and the owner's signing identities, and CI never runs it
+(`platform/ios/README.md`).
+
+The steps of each store build, the environment variables it reads and what the
+owner supplies are in the two platform READMEs. The owner supplies the accounts,
+the signing identities and profile, the upload key, the icons and the export
+answer. CI signs and uploads nothing. D36, which sets that, is still proposed.
+
+The build number is `CFBundleVersion` on iOS and `versionCode` on Android.
+Each upload to either store takes the next one. `platform/build-number` holds
+the last number uploaded, and `platform/build-number.sh bump N` raises it,
+only to the number after it. A debug or CI build takes the development number,
+1. A store build sets `TAWARA_BUILD_NUMBER` to the committed counter, and both
+platform scripts refuse any other value. Where the counter lives awaits the
+owner's decision (Tawara-wallet's `docs/RELEASE.md` section 5.2 names the
+integer and no file).
 
 CI runs all of these (`.github/workflows/mobile.yml`), with no third-party
 actions (D13).
@@ -94,14 +117,15 @@ licences `deny.toml` admits and to the targets the platform scripts build. Why
 the file is committed and checked, and not uploaded, is Tawara-wallet's
 `docs/DECISIONS.md` D35.
 
-The notices do not reach the app bundles yet. That is packaging work for
-phase 5 (`docs/PLAN.md` section 6). The APK must carry the file as
-`assets/THIRD-PARTY-NOTICES.txt`, which `platform/android/tawara.sh apk` does not
-do today, since it zips only the libraries. The iOS app bundle must carry it at
-its root, which `platform/ios/tawara.sh` does not do today, since it copies only
-the executable and `Info.plist`. Until packaging does both, no build made from
-this repository carries its notices. The known gaps in the notices, and the
-owner's decisions on them, are in Tawara-wallet's D35, item 6.
+The notices reach the two upload packages: the iOS upload bundle that
+`platform/ios/release.sh` makes puts the file, with `LICENSE.md`, at the root of
+`Tawara.app`, and the Google Play bundle that `platform/android/release.sh` makes
+puts them under the bundle's `assets/`. The development bundle that
+`platform/ios/tawara.sh` makes does not carry them, since it copies only the
+executable and `Info.plist`, and the development APK that `platform/android/tawara.sh
+apk` makes zips only the libraries. The desktop packages are the wallet's to
+place (Tawara-wallet's `docs/RELEASE.md` section 4). The known gaps in the
+notices, and the owner's decisions on them, are in Tawara-wallet's D35, item 6.
 
 ## Licence
 

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Tawara's privacy manifest. release.sh copies it to the root of Tawara.app
+     (docs/RELEASE.md section 6.5; docs/DECISIONS.md D36).
+
+     Required-reason APIs, from the imports of the aarch64-apple-ios release binary
+     (nm -u, checked 2026-10-18; that build is linked with the iOS 27.0 SDK, the one
+     installed on the machine where it was checked, so the imports must be checked
+     again on the iOS 26.x build before submission):
+     - stat, lstat, fstat and fstatat. The store's folder and files are under
+       Library/Application Support/Tawara in the app's own container, and the app
+       makes that folder 0700 (platform/ios/README.md). These calls are taken to read
+       the metadata of that container: reason C617.1, "access timestamps, size, or
+       metadata for files in the app container". The owner's Xcode privacy report on
+       the archive confirms which calls they are.
+     - mach_absolute_time and mach_timebase_info, which Rust's Instant uses to measure
+       the time between events in the app: reason 35F9.1.
+     Not imported, so not declared: the disk-space calls (statfs, statvfs, the
+     volume-capacity attributes of getattrlist), NSUserDefaults, and the
+     active-keyboard API.
+     clock_gettime is imported (by the standard library). No reason code for it was
+     found in the sources checked, so it is not declared here. The App Store
+     validation of the 26.x archive is where that is confirmed.
+
+     NSPrivacyTracking is false: the app does not link data about the person with
+     other companies' apps or websites for advertising, and it has no tracking
+     domains.
+
+     NSPrivacyCollectedDataTypes is empty. The reasoning is that the app runs no
+     analytics and no crash reporting of its own, and sends the node only the requests
+     the person makes to the node they choose (the default is https://api.mochimo.org,
+     DECISIONS D43). Who operates the default node, and whether it keeps those
+     requests beyond answering them, is open (DECISIONS D43 item 5; the threat
+     model's T28). That is for the owner to decide before submission. The App Store
+     Connect privacy answers must agree with this file.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
