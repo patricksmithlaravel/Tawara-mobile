@@ -71,6 +71,14 @@ package_version() {
     | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="tawara-mobile"))'
 }
 
+# target_dir: cargo's target directory for this workspace. CARGO_TARGET_DIR, or a
+# build.target-dir setting, moves it away from target/, so the binary is read from
+# where cargo writes it.
+target_dir() {
+  cargo metadata --locked --no-deps --format-version 1 \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])'
+}
+
 # locked_app_version: the version of tawara-app, the wallet crate, in Cargo.lock.
 # docs/RELEASE.md section 5.1 requires it to equal tawara-mobile's.
 locked_app_version() {
@@ -172,7 +180,7 @@ package_ipa() {
 
 main() {
   cd "$ROOT"
-  local dry=0 export_yes version app_version build sdk xcode_version xcode_build exe linked_sdk
+  local dry=0 export_yes version app_version build sdk xcode_version xcode_build exe linked_sdk tdir
   case ${TAWARA_IOS_DRY_RUN:-0} in
     0) ;;
     1) dry=1 ;;
@@ -250,8 +258,13 @@ main() {
   note "version $version, build $build"
 
   note "building $BIN for aarch64-apple-ios"
+  # The binary is read from cargo's target directory, which CARGO_TARGET_DIR can move.
+  # An earlier binary is removed first, so that a build which leaves none cannot pass
+  # the checks below with a stale one.
+  tdir=$(target_dir) || die "cargo metadata gave no target directory"
+  exe=$tdir/aarch64-apple-ios/release/$BIN
+  rm -f "$exe"
   cargo build --locked --release -p tawara-mobile --bin "$BIN" --target aarch64-apple-ios
-  exe=$ROOT/target/aarch64-apple-ios/release/$BIN
   [ -f "$exe" ] || die "$exe was not built"
   # LC_BUILD_VERSION: IOS is a phone build, and the SDK is the one it was linked with.
   [ "$(vtool_field "$exe" platform)" = IOS ] || die "$exe is not an iOS device binary"
