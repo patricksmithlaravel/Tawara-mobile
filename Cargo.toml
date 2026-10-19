@@ -27,18 +27,27 @@ repository = "https://github.com/patricksmithlaravel/Tawara-mobile"
 # `[patch]`, `[replace]`, vendored copy or path override.
 # `crates/mobile/tests/policy.rs` holds this line to a 40-hex `rev`.
 #
-# TAWARA-WALLET'S QR SCANNER, PULL REQUEST #40 (docs/DECISIONS.md D42 and D40).
-# `rev` is the head of Tawara-wallet's `work/qr-scan` at 6347ad5, the branch of
-# that pull request. The branch starts from Tawara-wallet's `main` at 78d6fb0.
-# It adds the `Host` fields `scan`, `cancel_scan` and `scan_preview`, which
+# TAWARA-WALLET'S MAIN AFTER PULL REQUESTS #40 TO #42 (docs/DECISIONS.md D33).
+# `rev` is the head of Tawara-wallet's `main` at
+# bcbcf622eeed1381428fdd840fb69547dc0b6ec1. The pin before this one, 6347ad5, is
+# the head of pull request #40's branch, and it stays in that history.
+#
+# PULL REQUEST #40 is the QR scanner (docs/DECISIONS.md D42 and D40). It adds the
+# `Host` fields `scan`, `cancel_scan` and `scan_preview`, which
 # crates/mobile/src/ios/scan.rs and crates/mobile/src/android/scan.rs fill, the
 # checks a scanned text must pass, and the Scan buttons and the scanner's page.
-# It also turns on iced's `image-without-codecs` feature, for the Android
-# preview (D42 item 5), so Cargo.lock gains six crates: image, byteorder-lite,
-# kamadak-exif, moxcms, mutate_once and pxfm. The pull request merges into
-# Tawara-wallet's `main` with a merge commit, so 6347ad5 stays on `main`'s
-# history, and `rev` needs no move when it does.
-tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "6347ad59f0aa4e75c57624d336186c92aa40080e" }
+# It turns on iced's `image-without-codecs` feature, for the Android preview
+# (D42 item 5), so Cargo.lock holds image, byteorder-lite, kamadak-exif, moxcms,
+# mutate_once and pxfm.
+#
+# PULL REQUEST #41 is the Licences page (docs/DECISIONS.md D35). It adds the
+# `Host` field `notices`, which crates/mobile/src/ios.rs and
+# crates/mobile/src/android.rs fill with this repository's
+# THIRD-PARTY-NOTICES.txt, so the page draws the phone package's notices.
+#
+# PULL REQUEST #42 points docs/RELEASE.md's mobile rows at this repository's
+# release scripts.
+tawara-app = { git = "https://github.com/patricksmithlaravel/Tawara-wallet", rev = "bcbcf622eeed1381428fdd840fb69547dc0b6ec1" }
 
 # THE SHELLS' GLUE (Tawara-wallet's docs/DECISIONS.md D32), each on its own
 # platform.

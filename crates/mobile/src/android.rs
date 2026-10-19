@@ -63,6 +63,10 @@ pub fn main(app: AndroidApp) {
         copy,
         share,
         back,
+        // The notices of this package, which the Licences page draws (Tawara-wallet's
+        // docs/DECISIONS.md D35; docs/RELEASE.md section 4). release.sh puts the same
+        // file in the bundle's assets/.
+        notices: include_str!("../../../THIRD-PARTY-NOTICES.txt"),
         // Android reports no capture: FLAG_SECURE is its protection (D44 item 4).
         captured: None,
         // Android offers no device unlock: no Java is added for it (D45 item 1).
